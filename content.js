@@ -261,11 +261,11 @@
     const preparedText = prepareOCExtractionText(rawText);
     const suffixPattern = "(?:AG25|AG26|COT25|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)";
     const strictOcRegex = new RegExp(
-      `\\b(\\d{3,8}-\\d{2,6}-${suffixPattern})\\b`,
+      `\\b(\\d{3,8}-+\\d{2,6}-+${suffixPattern})\\b`,
       "gi",
     );
     const labeledOcRegex = new RegExp(
-      `\\bOC[:\\s#-]*(\\d{3,8}-\\d{2,6}-${suffixPattern})\\b`,
+      `\\bOC[:\\s#-]*(\\d{3,8}-+\\d{2,6}-+${suffixPattern})\\b`,
       "gi",
     );
 
@@ -287,8 +287,9 @@
   function prepareOCExtractionText(text) {
     return String(text || "")
       .replace(/[–]/g, "-")
+      .replace(/-{2,}/g, "-")
       .replace(
-        /(AG25|AG26|COT25|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)(?=\d{3,8}-\d{2,6}-)/gi,
+        /(AG25|AG26|COT25|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)(?=\d{3,8}-+\d{2,6}-+)/gi,
         "$1\n",
       );
   }
@@ -297,6 +298,7 @@
     const normalized = String(value || "")
       .trim()
       .replace(/[–]/g, "-")
+      .replace(/-{2,}/g, "-")
       .replace(/^OC[:\s#-]*/i, "")
       .toUpperCase();
 
