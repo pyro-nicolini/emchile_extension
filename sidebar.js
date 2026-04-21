@@ -32,6 +32,9 @@
       btnRetry: $("js-retry"),
       btnGotoCfg: $("js-goto-cfg"),
       warnBar: $("js-warn"),
+      riskBar: $("js-riskbar"),
+      riskTitle: $("js-risktitle"),
+      riskReasons: $("js-riskreasons"),
       ocBar: $("js-ocbar"),
       ocList: $("js-oclist"),
       btnCopyOcs: $("js-copy-ocs"),
@@ -254,6 +257,8 @@
     // shouldReply warning
     el.warnBar.classList.toggle("hidden", result.shouldReply !== false);
 
+    renderRiskAlert(result.riskAlert);
+
     renderOCs(ticketData?.ocNumbers || []);
 
     // Confidence
@@ -319,6 +324,22 @@
         copyText(chip.dataset.oc || "").then(() => showToast("✓ OC copiada"));
       });
     });
+  }
+
+  function renderRiskAlert(riskAlert) {
+    if (!el.riskBar || !el.riskTitle || !el.riskReasons) return;
+
+    if (!riskAlert?.title) {
+      el.riskBar.classList.add("hidden");
+      el.riskReasons.innerHTML = "";
+      return;
+    }
+
+    el.riskBar.classList.remove("hidden");
+    el.riskTitle.textContent = riskAlert.title;
+    el.riskReasons.innerHTML = (riskAlert.reasons || [])
+      .map((reason) => `<span class="risk-chip">${esc(reason)}</span>`)
+      .join("");
   }
 
   function esc(s) {

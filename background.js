@@ -127,6 +127,8 @@ async function analyzeTicket(ticketData) {
     throw new Error("Respuesta incompleta del modelo. Intenta nuevamente.");
   }
 
+  result = normalizeAnalysis(ticketData, result);
+
   await saveToHistory(ticketData, result);
   return result;
 }
@@ -150,6 +152,15 @@ Tu función es analizar tickets y generar tres salidas estructuradas: respuesta 
 • NUNCA uses tecnicismos internos en la respuesta al cliente
 • La respuesta al cliente SIEMPRE termina firmada como "Equipo EMChile"
 • Si el caso es ambiguo, incompleto o sensible → establece shouldReply = false
+
+══════════════════════════════════════════
+ PRIORIZACIÓN DE RIESGO
+══════════════════════════════════════════
+• Si el ticket menciona multa, sanción, incumplimiento, descargos, notificación formal, resolución exenta, cobranza, devolución por calidad, productos defectuosos, o un plazo legal/administrativo, eso es PRIORIDAD MÁXIMA
+• En esos casos, el summary DEBE mencionarlo explícitamente en la primera oración
+• En esos casos, internalMessage DEBE dejar explícito que existe riesgo de multa, sanción o incumplimiento
+• En esos casos sensibles o con riesgo legal/comercial, shouldReply debe tender a false salvo que la acción de respuesta sea inequívoca y segura
+• Nunca ocultes ni minimices una multa o procedimiento sancionatorio detrás de un resumen genérico
 
 ══════════════════════════════════════════
  COMUNICACIÓN EXTERNA (clientReply)
@@ -203,6 +214,8 @@ RESPONDE ÚNICAMENTE con un objeto JSON válido con esta estructura exacta (sin 
 
 function buildUserPrompt(ticketData) {
   const lines = [`TICKET ID: ${ticketData.ticketId || "No detectado"}`];
+  const conversationText = ticketData.conversation || "No se pudo extraer la conversación del ticket.";
+  const criticalSignals = detectCriticalSignals(`${ticketData.subject || ""}\n${conversationText}\n${ticketData.additionalData || ""}`);
 
   if (ticketData.subject) lines.push(`ASUNTO: ${ticketData.subject}`);
   if (ticketData.customerName && ticketData.customerName !== "No detectado") {
@@ -233,10 +246,17 @@ function buildUserPrompt(ticketData) {
     }
   }
 
+  if (criticalSignals.length) {
+    lines.push("");
+    lines.push(`SEÑALES CRÍTICAS DETECTADAS (${criticalSignals.length}):`);
+    criticalSignals.forEach((signal, i) => lines.push(`  ${i + 1}. ${signal}`));
+    lines.push("IMPORTANTE: Si existe multa, sanción, incumplimiento o plazo de descargos, el summary debe mencionarlo explícitamente en la primera oración.");
+  }
+
   lines.push(
     "",
     "CONVERSACIÓN COMPLETA:",
-    ticketData.conversation || "No se pudo extraer la conversación del ticket.",
+    conversationText,
   );
 
   if (ticketData.additionalData) {
@@ -248,6 +268,160 @@ function buildUserPrompt(ticketData) {
     "Genera el análisis siguiendo estrictamente las reglas EMChile.",
   );
   return lines.join("\n");
+}
+
+function detectCriticalSignals(text) {
+  const normalized = String(text || "").toLowerCase();
+  const signalPatterns = [
+    { pattern: /multa|multas/, label: "Mención de multa o multas" },
+    { pattern: /sanci[oó]n|sanciones/, label: "Mención de sanción o sanciones" },
+    { pattern: /incumplimiento|incumple|incumplido/, label: "Mención de incumplimiento" },
+    { pattern: /descargos?/, label: "Existe plazo o solicitud de descargos" },
+    { pattern: /procedimiento de aplicaci[oó]n de multa/, label: "Inicio de procedimiento de aplicación de multa" },
+    { pattern: /resoluci[oó]n exenta/, label: "Mención de resolución exenta" },
+    { pattern: /notificaci[oó]n|notifica/, label: "Existe notificación formal" },
+    { pattern: /productos defectuosos|deficiencias en su calidad|mal estado/, label: "Mención de productos defectuosos o problemas de calidad" },
+    { pattern: /plazo.*48 horas|48 horas/, label: "Existe plazo de 48 horas u otro plazo administrativo" },
+    { pattern: /devoluci[oó]n|devolver/, label: "Mención de devolución de productos" },
+  ];
+
+  return signalPatterns
+    .filter(({ pattern }) => pattern.test(normalized))
+    .map(({ label }) => label);
+}
+
+function normalizeAnalysis(ticketData, result) {
+  const normalized = {
+    ...result,
+    summary: String(result.summary || "").trim(),
+    clientReply: String(result.clientReply || "").trim(),
+    internalMessage: String(result.internalMessage || "").trim(),
+    shouldReply: typeof result.shouldReply === "boolean" ? result.shouldReply : true,
+    confidence: clampConfidence(result.confidence),
+  };
+
+  const criticalContext = getCriticalContext(ticketData);
+
+  if (criticalContext.hasRisk) {
+    normalized.summary = ensureCriticalSummary(normalized.summary, criticalContext, ticketData);
+    normalized.internalMessage = ensureCriticalInternalMessage(
+      normalized.internalMessage,
+      criticalContext,
+      ticketData,
+    );
+    normalized.shouldReply = false;
+    normalized.confidence = Math.min(normalized.confidence, 65);
+    normalized.riskAlert = buildRiskAlert(criticalContext, ticketData);
+  } else {
+    normalized.riskAlert = null;
+  }
+
+  return normalized;
+}
+
+function getCriticalContext(ticketData) {
+  const text = `${ticketData.subject || ""}\n${ticketData.conversation || ""}\n${ticketData.additionalData || ""}`;
+  const normalized = text.toLowerCase();
+  const signals = detectCriticalSignals(text);
+  const hasPenalty = /multa|multas|sanci[oó]n|sanciones|procedimiento de aplicaci[oó]n de multa/.test(normalized);
+  const hasBreach = /incumplimiento|productos defectuosos|deficiencias en su calidad|mal estado/.test(normalized);
+  const hasDeadline = /descargos?|48 horas|plazo/.test(normalized);
+  const hasFormalNotice = /notificaci[oó]n|resoluci[oó]n exenta/.test(normalized);
+  const amountMatch = text.match(/\$\s?[\d\.]+/g) || [];
+
+  return {
+    hasRisk: hasPenalty || (hasBreach && hasDeadline) || hasFormalNotice,
+    hasPenalty,
+    hasBreach,
+    hasDeadline,
+    hasFormalNotice,
+    signals,
+    amounts: amountMatch,
+  };
+}
+
+function ensureCriticalSummary(summary, criticalContext, ticketData) {
+  const lower = summary.toLowerCase();
+  if (/(multa|sanci[oó]n|incumplimiento|descargos?|notificaci[oó]n formal)/.test(lower)) {
+    return summary;
+  }
+
+  const ocText = ticketData.ocNumbers?.length
+    ? ` para la${ticketData.ocNumbers.length > 1 ? "s OCs" : " OC"} ${ticketData.ocNumbers.join(", ")}`
+    : "";
+
+  let lead = `Ticket sensible por procedimiento de multa y/o incumplimiento${ocText}.`;
+  if (criticalContext.hasPenalty && criticalContext.hasDeadline) {
+    lead = `Ticket sensible: existe notificación de multa${ocText} y plazo para presentar descargos.`;
+  } else if (criticalContext.hasPenalty) {
+    lead = `Ticket sensible: existe riesgo de multa o sanción${ocText}.`;
+  } else if (criticalContext.hasBreach) {
+    lead = `Ticket sensible por incumplimiento y observaciones de calidad${ocText}.`;
+  }
+
+  return `${lead} ${summary}`.trim();
+}
+
+function ensureCriticalInternalMessage(internalMessage, criticalContext, ticketData) {
+  const lines = String(internalMessage || "").split("\n").filter(Boolean);
+  const firstLine = lines[0] || buildFallbackInternalHeader(ticketData);
+  const rest = lines.slice(1);
+  const combined = rest.join(" ").toLowerCase();
+
+  if (!/(multa|sanci[oó]n|incumplimiento|descargos?)/.test(combined)) {
+    const bullet = buildCriticalInternalBullet(criticalContext);
+    rest.unshift(`• ${bullet}`);
+  }
+
+  return [firstLine, ...rest].join("\n");
+}
+
+function buildFallbackInternalHeader(ticketData) {
+  const ticketId = ticketData.ticketId || "SIN-ID";
+  const ocText = ticketData.ocNumbers?.length ? ticketData.ocNumbers.join(", ") : "sin OC";
+  return `#${ticketId} – ID OC ${ocText}`;
+}
+
+function buildCriticalInternalBullet(criticalContext) {
+  if (criticalContext.hasPenalty && criticalContext.hasDeadline) {
+    return "Existe procedimiento de multa/notificación formal con plazo de descargos.";
+  }
+  if (criticalContext.hasPenalty) {
+    return "Existe riesgo de multa o sanción asociado al incumplimiento.";
+  }
+  if (criticalContext.hasBreach) {
+    return "Se reporta incumplimiento y/o productos observados por calidad.";
+  }
+  return "Caso sensible con riesgo administrativo/comercial.";
+}
+
+function buildRiskAlert(criticalContext, ticketData) {
+  const labels = [];
+  if (criticalContext.hasPenalty) labels.push("Multa / Sanción");
+  if (criticalContext.hasDeadline) labels.push("Plazo de descargos");
+  if (criticalContext.hasBreach) labels.push("Incumplimiento / Calidad");
+  if (criticalContext.hasFormalNotice) labels.push("Notificación formal");
+
+  const uniqueLabels = [...new Set(labels)];
+  const title = uniqueLabels.length
+    ? `RIESGO ALTO · ${uniqueLabels.join(" · ")}`
+    : "RIESGO ALTO · Caso sensible";
+
+  const ocText = ticketData.ocNumbers?.length
+    ? `OC${ticketData.ocNumbers.length > 1 ? "s" : ""}: ${ticketData.ocNumbers.join(", ")}`
+    : null;
+
+  return {
+    level: "high",
+    title,
+    reasons: [...criticalContext.signals.slice(0, 4), ...(ocText ? [ocText] : [])],
+  };
+}
+
+function clampConfidence(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 75;
+  return Math.max(0, Math.min(100, Math.round(num)));
 }
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────

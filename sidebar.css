@@ -416,6 +416,43 @@ body::after {
   flex-shrink: 0;
 }
 
+/* ── RISK BAR ───────────────────────────────────────────────────────────────── */
+.risk-bar {
+  padding: 10px 12px 12px;
+  background: linear-gradient(180deg, rgba(255, 71, 87, 0.12), rgba(255, 71, 87, 0.04));
+  border-bottom: 1px solid rgba(255, 71, 87, 0.28);
+  flex-shrink: 0;
+}
+.risk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.risk-title {
+  font-size: 10px;
+  font-weight: 800;
+  color: #ff8a95;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(255, 71, 87, 0.2);
+}
+.risk-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.risk-chip {
+  padding: 5px 8px;
+  background: rgba(255, 71, 87, 0.1);
+  border: 1px solid rgba(255, 71, 87, 0.22);
+  border-radius: 999px;
+  color: #ffb3ba;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
 /* ── OC BAR ─────────────────────────────────────────────────────────────────── */
 .oc-bar {
   padding: 10px 12px 12px;
