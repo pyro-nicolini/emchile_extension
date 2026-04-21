@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EMChile AI Desk</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="p-wrap">
+      <!-- Header -->
+      <div class="p-header">
+        <div class="p-brand">
+          <span class="p-glyph">⚡</span>
+          <div>
+            <div class="p-name">EMChile</div>
+            <div class="p-sub">AI DESK · v1.0.0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Key -->
+      <div class="p-section">
+        <label class="p-label" for="p-apikey">OpenAI API Key</label>
+        <div class="p-row">
+          <input
+            type="password"
+            id="p-apikey"
+            class="p-input"
+            placeholder="sk-…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button class="p-eye" id="p-eye" type="button">👁</button>
+        </div>
+        <p class="p-hint">
+          Se guarda localmente en tu navegador. Nunca se envía a servidores de
+          EMChile.
+        </p>
+      </div>
+
+      <!-- Model -->
+      <div class="p-section">
+        <label class="p-label" for="p-model">Modelo de IA</label>
+        <select id="p-model" class="p-select">
+          <option value="gpt-4o-mini">GPT-4o Mini — Rápido y económico</option>
+          <option value="gpt-4o">GPT-4o — Preciso y balanceado</option>
+          <option value="gpt-4-turbo">GPT-4 Turbo — Máxima capacidad</option>
+        </select>
+      </div>
+
+      <!-- Custom prompt toggle -->
+      <div class="p-section">
+        <div class="p-toggle-row">
+          <div>
+            <div class="p-label" style="margin-bottom: 0">
+              Prompt personalizado
+            </div>
+            <div class="p-hint" style="margin-top: 2px">
+              Reemplaza el prompt por defecto de EMChile
+            </div>
+          </div>
+          <label class="p-toggle">
+            <input type="checkbox" id="p-use-custom" />
+            <span class="p-tog-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <div id="p-custom-block" class="p-section hidden">
+        <label class="p-label" for="p-custom">Prompt del sistema</label>
+        <textarea
+          id="p-custom"
+          class="p-textarea"
+          rows="7"
+          placeholder="Eres un asistente especializado en postventa para EMChile…"
+        ></textarea>
+        <p class="p-hint">
+          El JSON de salida debe incluir: summary, clientReply, internalMessage,
+          shouldReply, confidence, category
+        </p>
+      </div>
+
+      <!-- Actions -->
+      <div class="p-actions">
+        <button class="p-btn-save" id="p-save">✓ Guardar configuración</button>
+        <button class="p-btn-ghost" id="p-clear-hist">
+          🗑 Limpiar historial
+        </button>
+      </div>
+
+      <!-- Status message -->
+      <div class="p-status hidden" id="p-status"></div>
+
+      <!-- Footer -->
+      <div class="p-footer">
+        <span>EMChile AI Desk</span>
+        <span>Zoho Desk · Manifest V3</span>
+      </div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

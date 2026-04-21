@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EMChile AI Desk</title>
+    <link rel="stylesheet" href="sidebar.css" />
+  </head>
+  <body>
+    <!-- ══════════════════════════════════════════════════════════════════════════
+       HEADER
+  ═══════════════════════════════════════════════════════════════════════════ -->
+    <header class="sh">
+      <div class="sh-brand">
+        <div class="sh-glyph">⚡</div>
+        <div class="sh-text">
+          <span class="sh-name">EMChile</span>
+          <span class="sh-sub">AI · DESK</span>
+        </div>
+      </div>
+      <div class="sh-actions">
+        <button class="ic-btn" id="js-settings" title="Configuración">⚙</button>
+        <button class="ic-btn" id="js-history" title="Historial">◷</button>
+        <button class="ic-btn ic-close" id="js-close" title="Cerrar">✕</button>
+      </div>
+    </header>
+
+    <!-- ══════════════════════════════════════════════════════════════════════════
+       TICKET INFO BAR
+  ═══════════════════════════════════════════════════════════════════════════ -->
+    <div class="tbar">
+      <span class="tbar-id" id="js-tid">#—</span>
+      <span class="tbar-sub" id="js-tsub">Esperando ticket…</span>
+      <span class="cat-badge hidden" id="js-cat">—</span>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════════
+       BODY  (states are toggled with .hidden)
+  ═══════════════════════════════════════════════════════════════════════════ -->
+    <div class="sb-body">
+      <!-- ── IDLE ─────────────────────────────────────────────────────────── -->
+      <div class="sv" id="sv-idle">
+        <div class="idle-glyph">⚡</div>
+        <p class="idle-title">EMChile AI Desk</p>
+        <p class="idle-sub">
+          Haz clic en el botón flotante <strong>⚡</strong><br />para analizar
+          el ticket activo en Zoho
+        </p>
+        <div class="idle-tip">
+          <span class="tip-dot"></span>
+          <span>Detecta automáticamente el ticket abierto</span>
+        </div>
+      </div>
+
+      <!-- ── LOADING ───────────────────────────────────────────────────────── -->
+      <div class="sv hidden" id="sv-loading">
+        <div class="spin-wrap">
+          <div class="ring r1"></div>
+          <div class="ring r2"></div>
+          <div class="ring r3"></div>
+          <div class="ring-core">IA</div>
+        </div>
+        <p class="load-title">Analizando ticket…</p>
+        <p class="load-sub">Procesando con GPT · EMChile</p>
+      </div>
+
+      <!-- ── ERROR ─────────────────────────────────────────────────────────── -->
+      <div class="sv hidden" id="sv-error">
+        <div class="err-icon">⚠</div>
+        <p class="err-title">Error de análisis</p>
+        <p class="err-msg" id="js-errmsg">—</p>
+        <button class="btn-primary" id="js-retry">↺ Reintentar</button>
+        <button class="btn-ghost" id="js-goto-cfg">⚙ Configurar API Key</button>
+      </div>
+
+      <!-- ── RESULTS ───────────────────────────────────────────────────────── -->
+      <div class="sv sv-results hidden" id="sv-results">
+        <!-- shouldReply warning -->
+        <div class="warn-bar hidden" id="js-warn">
+          <span class="warn-icon">⚠</span>
+          <span>Revisar antes de enviar — confianza baja o caso ambiguo</span>
+        </div>
+
+        <div class="oc-bar hidden" id="js-ocbar">
+          <div class="oc-bar-head">
+            <span class="oc-label">OC detectadas</span>
+            <button class="btn-copy" id="js-copy-ocs">⧉ Copiar OCs</button>
+          </div>
+          <div class="oc-list" id="js-oclist"></div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+          <button class="tab active" data-tab="client">📨 Cliente</button>
+          <button class="tab" data-tab="internal">🔧 Interno</button>
+          <button class="tab" data-tab="summary">📋 Resumen</button>
+        </div>
+
+        <!-- Panel: Cliente -->
+        <div class="panel active" id="panel-client">
+          <div class="card">
+            <div class="card-head">
+              <span class="clabel">Respuesta al cliente</span>
+              <div class="cacts">
+                <button class="btn-copy" data-key="clientReply">
+                  ⧉ Copiar
+                </button>
+                <button class="btn-insert" id="js-insert">
+                  ↗ Insertar en Zoho
+                </button>
+              </div>
+            </div>
+            <div class="card-body" id="js-client">—</div>
+          </div>
+        </div>
+
+        <!-- Panel: Interno -->
+        <div class="panel" id="panel-internal">
+          <div class="card">
+            <div class="card-head">
+              <span class="clabel">Comunicación interna</span>
+              <div class="cacts">
+                <button class="btn-copy" data-key="internalMessage">
+                  ⧉ Copiar
+                </button>
+              </div>
+            </div>
+            <div class="card-body" id="js-internal">—</div>
+          </div>
+        </div>
+
+        <!-- Panel: Resumen -->
+        <div class="panel" id="panel-summary">
+          <div class="card">
+            <div class="card-head">
+              <span class="clabel">Resumen ejecutivo</span>
+              <div class="cacts">
+                <button class="btn-copy" data-key="summary">⧉ Copiar</button>
+              </div>
+            </div>
+            <div class="card-body" id="js-summary">—</div>
+          </div>
+          <div class="card" id="js-data-card">
+            <div class="card-head">
+              <span class="clabel">Datos extraídos del DOM</span>
+            </div>
+            <div class="data-grid" id="js-datagrid"></div>
+          </div>
+        </div>
+      </div>
+      <!-- /sv-results -->
+
+      <!-- ── HISTORY ───────────────────────────────────────────────────────── -->
+      <div class="sv hidden" id="sv-history">
+        <div class="hist-head">
+          <span>Historial de análisis</span>
+          <button class="btn-danger-sm" id="js-clear-hist">Limpiar todo</button>
+        </div>
+        <div class="hist-list" id="js-hist"></div>
+      </div>
+
+      <!-- ── SETTINGS INLINE ───────────────────────────────────────────────── -->
+      <div class="sv hidden" id="sv-settings">
+        <div class="cfg-form">
+          <p class="cfg-title">⚙ Configuración rápida</p>
+
+          <label class="cfg-label">OpenAI API Key</label>
+          <div class="cfg-row">
+            <input
+              type="password"
+              id="js-apikey"
+              class="cfg-input"
+              placeholder="sk-…"
+              autocomplete="off"
+            />
+            <button class="btn-eye" id="js-eye">👁</button>
+          </div>
+
+          <label class="cfg-label">Modelo</label>
+          <select id="js-model" class="cfg-select">
+            <option value="gpt-4o-mini">GPT-4o Mini · Rápido</option>
+            <option value="gpt-4o">GPT-4o · Preciso</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo · Avanzado</option>
+          </select>
+
+          <label class="cfg-label cfg-toggle-row">
+            <span>Prompt personalizado</span>
+            <label class="toggle">
+              <input type="checkbox" id="js-use-custom" />
+              <span class="tog-slider"></span>
+            </label>
+          </label>
+
+          <div id="js-custom-wrap" class="hidden">
+            <label class="cfg-label">Prompt del sistema</label>
+            <textarea
+              id="js-custom-prompt"
+              class="cfg-textarea"
+              rows="7"
+              placeholder="Eres un asistente…"
+            ></textarea>
+          </div>
+
+          <button class="btn-primary" id="js-save-cfg">
+            ✓ Guardar configuración
+          </button>
+          <button class="btn-ghost" id="js-back-cfg">← Volver</button>
+        </div>
+      </div>
+    </div>
+    <!-- /sb-body -->
+
+    <!-- ══════════════════════════════════════════════════════════════════════════
+       FOOTER
+  ═══════════════════════════════════════════════════════════════════════════ -->
+    <footer class="sf" id="js-footer">
+      <div class="conf-bar">
+        <span class="conf-lbl">Confianza</span>
+        <div class="conf-track">
+          <div class="conf-fill" id="js-conf"></div>
+        </div>
+        <span class="conf-val" id="js-confval">—</span>
+      </div>
+      <button class="btn-reanalyze" id="js-reanalyze">↻ Re-analizar</button>
+    </footer>
+
+    <!-- Toast notification -->
+    <div class="toast" id="js-toast"></div>
+
+    <script src="sidebar.js"></script>
+  </body>
+</html>

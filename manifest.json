@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "EMChile AI Desk",
+  "version": "1.0.0",
+  "description": "Asistente IA de postventa para Zoho Desk — EMChile",
+  "permissions": ["storage", "clipboardWrite"],
+  "host_permissions": [
+    "https://*.zoho.com/*",
+    "https://*.zohodesk.com/*",
+    "https://api.openai.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.zoho.com/*", "https://*.zohodesk.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "EMChile AI Desk"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["sidebar.html", "sidebar.css", "sidebar.js"],
+      "matches": ["https://*.zoho.com/*", "https://*.zohodesk.com/*"]
+    }
+  ]
+}

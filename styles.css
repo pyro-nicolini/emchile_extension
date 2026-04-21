@@ -1,0 +1,308 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+   EMChile AI Desk — Popup styles
+   Dark cyber theme matching the sidebar
+═══════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg0: #07080e;
+  --bg1: #0b0c16;
+  --bg2: #10111c;
+  --bg3: #15162200;
+  --cyan: #00d4ff;
+  --cyan2: rgba(0, 212, 255, 0.12);
+  --cyan3: rgba(0, 212, 255, 0.06);
+  --purple: #a855f7;
+  --purple2: rgba(168, 85, 247, 0.18);
+  --red: #ff4757;
+  --green: #06ffa5;
+  --yellow: #fbbf24;
+  --t1: #e2e8f0;
+  --t2: #8892a4;
+  --t3: #4a5568;
+  --border: rgba(0, 212, 255, 0.13);
+  --border-a: rgba(0, 212, 255, 0.4);
+  --mono: "Menlo", "Monaco", "Cascadia Code", "Courier New", monospace;
+  --r: 8px;
+  --tr: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg0);
+  color: var(--t1);
+  width: 340px;
+  min-height: 100px;
+}
+
+/* ── Wrapper ─────────────────────────────────────────────────────────────────── */
+.p-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────────── */
+.p-header {
+  padding: 14px 16px 12px;
+  background: var(--bg0);
+  border-bottom: 1px solid var(--border);
+}
+.p-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.p-glyph {
+  font-size: 22px;
+  filter: drop-shadow(0 0 6px rgba(0, 212, 255, 0.8));
+}
+.p-name {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  color: var(--cyan);
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.45);
+}
+.p-sub {
+  font-size: 8px;
+  color: var(--t3);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ── Section ─────────────────────────────────────────────────────────────────── */
+.p-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.p-section:last-of-type {
+  border-bottom: none;
+}
+
+/* ── Label ───────────────────────────────────────────────────────────────────── */
+.p-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--t2);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+.p-hint {
+  font-size: 9px;
+  color: var(--t3);
+  line-height: 1.6;
+  margin-top: 5px;
+}
+
+/* ── Input row ───────────────────────────────────────────────────────────────── */
+.p-row {
+  display: flex;
+  gap: 6px;
+}
+.p-input {
+  flex: 1;
+  padding: 8px 11px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--t1);
+  font-family: var(--mono);
+  font-size: 11px;
+  transition: border-color var(--tr);
+}
+.p-input:focus {
+  outline: none;
+  border-color: var(--border-a);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.07);
+}
+.p-input::placeholder {
+  color: var(--t3);
+}
+.p-eye {
+  padding: 0 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--t2);
+  transition: var(--tr);
+}
+.p-eye:hover {
+  border-color: var(--border-a);
+  color: var(--cyan);
+}
+
+/* ── Select ──────────────────────────────────────────────────────────────────── */
+.p-select {
+  width: 100%;
+  padding: 8px 11px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--t1);
+  font-family: var(--mono);
+  font-size: 11px;
+  transition: border-color var(--tr);
+  cursor: pointer;
+}
+.p-select:focus {
+  outline: none;
+  border-color: var(--border-a);
+}
+
+/* ── Textarea ────────────────────────────────────────────────────────────────── */
+.p-textarea {
+  width: 100%;
+  padding: 8px 11px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--t1);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color var(--tr);
+}
+.p-textarea:focus {
+  outline: none;
+  border-color: var(--border-a);
+}
+.p-textarea::placeholder {
+  color: var(--t3);
+}
+
+/* ── Toggle row ──────────────────────────────────────────────────────────────── */
+.p-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.p-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.p-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.p-tog-track {
+  position: absolute;
+  inset: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: var(--tr);
+}
+.p-tog-track::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  top: 2px;
+  background: var(--t3);
+  border-radius: 50%;
+  transition: var(--tr);
+}
+.p-toggle input:checked + .p-tog-track {
+  background: var(--cyan2);
+  border-color: var(--border-a);
+}
+.p-toggle input:checked + .p-tog-track::before {
+  transform: translateX(16px);
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+
+/* ── Actions ─────────────────────────────────────────────────────────────────── */
+.p-actions {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.p-btn-save {
+  width: 100%;
+  padding: 9px;
+  background: var(--cyan2);
+  border: 1px solid rgba(0, 212, 255, 0.38);
+  color: var(--cyan);
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: var(--tr);
+}
+.p-btn-save:hover {
+  background: rgba(0, 212, 255, 0.15);
+  box-shadow: 0 0 14px rgba(0, 212, 255, 0.25);
+}
+.p-btn-ghost {
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--t2);
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--tr);
+}
+.p-btn-ghost:hover {
+  border-color: rgba(255, 71, 87, 0.3);
+  color: var(--red);
+  background: rgba(255, 71, 87, 0.04);
+}
+
+/* ── Status ──────────────────────────────────────────────────────────────────── */
+.p-status {
+  padding: 8px 16px;
+  font-size: 10px;
+  text-align: center;
+}
+.p-status-ok {
+  color: var(--green);
+}
+.p-status-warn {
+  color: var(--yellow);
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────────── */
+.p-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 9px;
+  color: var(--t3);
+  letter-spacing: 0.5px;
+}
+
+/* ── Utility ─────────────────────────────────────────────────────────────────── */
+.hidden {
+  display: none !important;
+}
