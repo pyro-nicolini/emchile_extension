@@ -11,6 +11,7 @@
   let previousView = "idle";
   let activeView = "idle";
   let el = {}; // populated in init() once DOM is ready
+  let cpAttachment = null; // { type: 'image'|'pdf', base64, mimeType, name }
 
   // ─── INIT ──────────────────────────────────────────────────────────────────
   function init() {
@@ -38,6 +39,7 @@
       ocBar: $("js-ocbar"),
       ocList: $("js-oclist"),
       btnCopyOcs: $("js-copy-ocs"),
+      btnAutoFill: $("js-autofill"),
       clientText: $("js-client"),
       internalText: $("js-internal"),
       summaryText: $("js-summary"),
@@ -57,6 +59,18 @@
       btnSaveCfg: $("js-save-cfg"),
       btnBackCfg: $("js-back-cfg"),
       toast: $("js-toast"),
+      cpInput: $("js-cp-input"),
+      btnCpRun: $("js-cp-run"),
+      cpResultCard: $("js-cp-result-card"),
+      cpResponse: $("js-cp-response"),
+      btnCpCopy: $("js-cp-copy"),
+      btnCpInsert: $("js-cp-insert"),
+      cpFile: $("js-cp-file"),
+      cpPreview: $("js-cp-preview"),
+      cpAttachIcon: $("js-cp-attach-icon"),
+      cpAttachName: $("js-cp-attach-name"),
+      btnCpRemove: $("js-cp-remove"),
+      btnAntiSample: $("js-anti-sample"),
     };
 
     if (!el.btnClose || !el.btnSettings || !el.toast) {
@@ -132,6 +146,10 @@
       el.btnCopyOcs.addEventListener("click", copyOCs);
     }
 
+    if (el.btnAutoFill) {
+      el.btnAutoFill.addEventListener("click", runAutoFill);
+    }
+
     // History
     el.btnClearHist.addEventListener("click", () => {
       if (confirm("¿Limpiar todo el historial de análisis?")) {
@@ -156,6 +174,26 @@
     });
     el.btnSaveCfg.addEventListener("click", saveSettings);
     el.btnBackCfg.addEventListener("click", () => showView(previousView));
+
+    // Custom Prompt
+    el.btnCpRun.addEventListener("click", runCustomPrompt);
+    if (el.btnAntiSample) {
+      el.btnAntiSample.addEventListener("click", runAntiSample);
+    }
+    el.btnCpCopy.addEventListener("click", () => {
+      const text = el.cpResponse.textContent;
+      if (text && text !== "—")
+        copyText(text).then(() => showToast("✓ Respuesta copiada"));
+    });
+    el.btnCpInsert.addEventListener("click", () => {
+      const text = el.cpResponse.textContent;
+      if (text && text !== "—") {
+        notifyContent({ type: "INSERT_IN_ZOHO", data: { text } });
+      }
+    });
+    el.cpFile.addEventListener("change", handleCpFileSelect);
+    el.btnCpRemove.addEventListener("click", clearCpAttachment);
+    el.cpInput.addEventListener("paste", handleCpPaste);
 
     // Messages from content.js
     window.addEventListener("message", onContentMessage);
@@ -187,6 +225,28 @@
       case "INSERT_FALLBACK":
         showToast(message || "✓ Copiado al portapapeles");
         break;
+      case "AUTO_FILL_RESULT": {
+        const { filled = [], failed = [], saved } = data || {};
+        // Cancel safety timer
+        if (el.btnAutoFill?._safetyTimer) {
+          clearTimeout(el.btnAutoFill._safetyTimer);
+          el.btnAutoFill._safetyTimer = null;
+        }
+        if (el.btnAutoFill) {
+          el.btnAutoFill.disabled = false;
+          el.btnAutoFill.textContent = "⚡ AUTO-COMPLETAR-OC";
+        }
+        if (saved) {
+          showToast(`✓ Guardado — ${filled.length} campo(s) completado(s)`);
+        } else if (filled.length) {
+          showToast(
+            `✓ ${filled.join(", ")} completado(s) — haz clic en Guardar`,
+          );
+        } else {
+          showToast("⚠ No se encontraron campos para completar");
+        }
+        break;
+      }
     }
   }
 
@@ -269,6 +329,12 @@
 
     showView("results");
     switchTab("client");
+
+    // Reset custom prompt section for fresh analysis
+    if (el.cpInput) el.cpInput.value = "";
+    if (el.cpResultCard) el.cpResultCard.classList.add("hidden");
+    if (el.cpResponse) el.cpResponse.textContent = "—";
+    clearCpAttachment();
   }
 
   function renderConfidence(value) {
@@ -306,16 +372,19 @@
 
   function renderOCs(ocNumbers) {
     if (!el.ocBar || !el.ocList) return;
-    if (!ocNumbers.length) {
-      el.ocBar.classList.add("hidden");
-      el.ocList.innerHTML = "";
+    const hasOcs = ocNumbers.length > 0;
+    el.ocBar.classList.remove("hidden");
+    if (el.btnCopyOcs) el.btnCopyOcs.disabled = !hasOcs;
+    if (!hasOcs) {
+      el.ocList.innerHTML =
+        '<span class="oc-empty">No se detectaron OCs</span>';
       return;
     }
 
-    el.ocBar.classList.remove("hidden");
     el.ocList.innerHTML = ocNumbers
       .map(
-        (oc) => `<button class="oc-chip" type="button" data-oc="${esc(oc)}">${esc(oc)}</button>`,
+        (oc) =>
+          `<button class="oc-chip" type="button" data-oc="${esc(oc)}">${esc(oc)}</button>`,
       )
       .join("");
 
@@ -340,6 +409,182 @@
     el.riskReasons.innerHTML = (riskAlert.reasons || [])
       .map((reason) => `<span class="risk-chip">${esc(reason)}</span>`)
       .join("");
+  }
+
+  // ─── CUSTOM PROMPT ─────────────────────────────────────────────────────────
+  function runCustomPrompt() {
+    const userPrompt = el.cpInput.value.trim();
+    if (!userPrompt) {
+      showToast("⚠ Escribe un prompt primero");
+      return;
+    }
+    if (!currentTicket && !currentResult && !cpAttachment) {
+      showToast("⚠ Analiza el ticket primero");
+      return;
+    }
+
+    // Set loading state
+    el.btnCpRun.disabled = true;
+    el.btnCpRun.querySelector(".cp-run-label").textContent = "Analizando…";
+    el.btnCpRun.classList.add("cp-loading");
+
+    chrome.runtime.sendMessage(
+      {
+        type: "CUSTOM_PROMPT_ANALYZE",
+        data: {
+          ticketData: currentTicket,
+          currentResult,
+          userPrompt,
+          attachment: cpAttachment,
+        },
+      },
+      (response) => {
+        el.btnCpRun.disabled = false;
+        el.btnCpRun.querySelector(".cp-run-label").textContent =
+          "Generar respuesta";
+        el.btnCpRun.classList.remove("cp-loading");
+
+        if (chrome.runtime.lastError || response?.error) {
+          showToast(
+            `✗ ${response?.error || chrome.runtime.lastError?.message || "Error desconocido"}`,
+          );
+          return;
+        }
+
+        el.cpResponse.textContent = response.reply || "Sin respuesta generada.";
+        el.cpResultCard.classList.remove("hidden");
+        el.cpResultCard.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      },
+    );
+  }
+
+  // ─── ANTI-MUESTRAS ───────────────────────────────────────────────────────
+  const ANTI_SAMPLE_PROMPT =
+    "Redacta una respuesta cordial y profesional: saludo con nombre y agradece la informacion/ficha tecnica. " +
+    "Indica que por el momento/momentaneamente no estamos fabricando muestras individuales hasta nuevo aviso, " +
+    "por lo que no es posible comprometer el plazo indicado. Aclara que las muestras solo se entregan si hay " +
+    "stock fisico disponible y, si hay stock, se informara a la brevedad. Si no hay stock, comunicar que se " +
+    "avisara cualquier novedad. Mantener tono cercano y con disposicion a ayudar. Cierra con saludo cordial y " +
+    "firma 'Equipo EMChile'.";
+
+  function runAntiSample() {
+    if (!currentTicket && !currentResult) {
+      showToast("⚠ Analiza el ticket primero");
+      return;
+    }
+
+    const btn = el.btnAntiSample;
+    if (btn) {
+      btn.disabled = true;
+      btn.querySelector(".cp-run-label").textContent = "Generando…";
+      btn.classList.add("cp-loading");
+    }
+
+    chrome.runtime.sendMessage(
+      {
+        type: "CUSTOM_PROMPT_ANALYZE",
+        data: {
+          ticketData: currentTicket,
+          currentResult,
+          userPrompt: ANTI_SAMPLE_PROMPT,
+          attachment: null,
+        },
+      },
+      (response) => {
+        if (btn) {
+          btn.disabled = false;
+          btn.querySelector(".cp-run-label").textContent =
+            "Generar anti-muestras";
+          btn.classList.remove("cp-loading");
+        }
+
+        if (chrome.runtime.lastError || response?.error) {
+          showToast(
+            `✗ ${response?.error || chrome.runtime.lastError?.message || "Error desconocido"}`,
+          );
+          return;
+        }
+
+        el.cpResponse.textContent = response.reply || "Sin respuesta generada.";
+        el.cpResultCard.classList.remove("hidden");
+        el.cpResultCard.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      },
+    );
+  }
+
+  // ─── ATTACHMENT HANDLING ───────────────────────────────────────────────────
+  function handleCpPaste(e) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        readFileAsBase64(blob).then((base64) => {
+          cpAttachment = {
+            type: "image",
+            base64,
+            mimeType: item.type,
+            name: "imagen_pegada.png",
+          };
+          showCpPreview("🖼", "Imagen pegada del portapapeles");
+          showToast("✓ Imagen capturada del portapapeles");
+        });
+        return;
+      }
+    }
+  }
+
+  function handleCpFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const isImage = file.type.startsWith("image/");
+    const isPdf = file.type === "application/pdf";
+    if (!isImage && !isPdf) {
+      showToast("⚠ Solo se aceptan imágenes o PDFs");
+      return;
+    }
+    readFileAsBase64(file).then((base64) => {
+      cpAttachment = {
+        type: isImage ? "image" : "pdf",
+        base64,
+        mimeType: file.type,
+        name: file.name,
+      };
+      showCpPreview(isImage ? "🖼" : "📄", file.name);
+      showToast("✓ Archivo adjuntado");
+    });
+    e.target.value = ""; // allow re-selecting same file
+  }
+
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function showCpPreview(icon, name) {
+    if (!el.cpPreview) return;
+    el.cpAttachIcon.textContent = icon;
+    el.cpAttachName.textContent = name;
+    el.cpPreview.classList.remove("hidden");
+  }
+
+  function clearCpAttachment() {
+    cpAttachment = null;
+    if (!el.cpPreview) return;
+    el.cpPreview.classList.add("hidden");
+    el.cpAttachIcon.textContent = "🖼";
+    el.cpAttachName.textContent = "";
   }
 
   function esc(s) {
@@ -380,19 +625,67 @@
     });
   }
 
+  // ─── AUTO-FILL FIELDS ──────────────────────────────────────────────────────
+  function runAutoFill() {
+    const ocs = currentTicket?.ocNumbers || [];
+
+    // Determine priority from analysis
+    let priority = "Medium";
+    if (currentResult?.riskAlert?.title) {
+      priority = "High";
+    } else if ((currentResult?.confidence ?? 0) >= 70) {
+      priority = "Medium";
+    } else {
+      priority = "Low";
+    }
+    // Override if ticket already has an explicit priority
+    const existingPrio = currentTicket?.priority;
+    if (
+      existingPrio &&
+      !["No detectada", "No detectado", "—"].includes(existingPrio)
+    ) {
+      priority = existingPrio;
+    }
+
+    if (!ocs.length) {
+      showToast("⚠ No se detectaron OCs en el ticket");
+      return;
+    }
+
+    if (el.btnAutoFill) {
+      el.btnAutoFill.disabled = true;
+      el.btnAutoFill.textContent = "Completando…";
+    }
+
+    // Safety timeout — unlock button if content.js never responds
+    const safetyTimer = setTimeout(() => {
+      if (el.btnAutoFill) {
+        el.btnAutoFill.disabled = false;
+        el.btnAutoFill.textContent = "⚡ AUTO-COMPLETAR-OC";
+      }
+      showToast("⚠ No se encontraron campos para completar en esta página");
+    }, 10000);
+
+    // Store so AUTO_FILL_RESULT can cancel it
+    el.btnAutoFill._safetyTimer = safetyTimer;
+
+    notifyContent({
+      type: "AUTO_FILL_FIELDS",
+      data: { ocNumbers: ocs, priority, licitacion: null },
+    });
+  }
+
   function copyText(text) {
     if (!text) return Promise.resolve();
 
-    navigator.clipboard
-      .writeText(text)
-      .catch(() => {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      });
+    navigator.clipboard.writeText(text).catch(() => {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    });
 
     return Promise.resolve();
   }

@@ -5,13 +5,19 @@
 //  Handles: OpenAI API calls · Chrome storage · History management
 // ═══════════════════════════════════════════════════════════════════════════════
 
-chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (request.type) {
     case "ANALYZE_TICKET":
       analyzeTicket(request.data)
         .then(sendResponse)
         .catch((err) => sendResponse({ error: err.message }));
       return true; // keep channel open for async
+
+    case "CUSTOM_PROMPT_ANALYZE":
+      customPromptAnalyze(request.data)
+        .then(sendResponse)
+        .catch((err) => sendResponse({ error: err.message }));
+      return true;
 
     case "GET_SETTINGS":
       chrome.storage.local.get(
@@ -23,7 +29,10 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     case "SAVE_SETTINGS":
       chrome.storage.local.set(request.data, () => {
         if (chrome.runtime.lastError) {
-          sendResponse({ success: false, error: chrome.runtime.lastError.message });
+          sendResponse({
+            success: false,
+            error: chrome.runtime.lastError.message,
+          });
           return;
         }
 
@@ -31,7 +40,10 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
           ["apiKey", "model", "customPrompt", "useCustomPrompt"],
           (saved) => {
             if (chrome.runtime.lastError) {
-              sendResponse({ success: false, error: chrome.runtime.lastError.message });
+              sendResponse({
+                success: false,
+                error: chrome.runtime.lastError.message,
+              });
               return;
             }
 
@@ -59,6 +71,800 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         sendResponse({ success: true }),
       );
       return true;
+
+    // ── Run insert in page's MAIN world (bypasses Zoho CSP) ─────────────────
+    case "EXEC_INSERT": {
+      const { text } = request.data;
+      (async () => {
+        try {
+          const tabId = sender?.tab?.id;
+          if (!tabId) {
+            sendResponse({
+              ok: false,
+              error: "No se encontró la pestaña activa.",
+            });
+            return;
+          }
+
+          const results = await chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            world: "MAIN",
+            func: async (txt) => {
+              if (location.protocol === "chrome-extension:") return false;
+
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+              const isVisible = (el) => {
+                if (!el) return false;
+                const win = el.ownerDocument?.defaultView || window;
+                const rect = el.getBoundingClientRect();
+                const style = win.getComputedStyle(el);
+                return (
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  style.visibility !== "hidden" &&
+                  style.display !== "none"
+                );
+              };
+
+              const findReplyAllButton = () => {
+                const btns = document.querySelectorAll(
+                  'button, [role="button"], a, [data-action]',
+                );
+                for (const btn of btns) {
+                  if (!isVisible(btn)) continue;
+                  const text = (btn.textContent || "").trim().toLowerCase();
+                  const label = (
+                    btn.getAttribute("aria-label") ||
+                    btn.getAttribute("title") ||
+                    ""
+                  )
+                    .trim()
+                    .toLowerCase();
+                  if (
+                    text.includes("responder a todos") ||
+                    label.includes("responder a todos") ||
+                    text.includes("reply all") ||
+                    label.includes("reply all")
+                  ) {
+                    return btn;
+                  }
+                }
+                return null;
+              };
+
+              const editorSelectors = [
+                ".ql-editor",
+                ".ProseMirror",
+                ".public-DraftEditor-content",
+                '[contenteditable="true"][role="textbox"]',
+                'body[contenteditable="true"]',
+                'html[contenteditable="true"]',
+                '[contenteditable="true"]',
+                "textarea",
+              ];
+
+              const hasEditor = () => {
+                for (const sel of editorSelectors) {
+                  const el = document.querySelector(sel);
+                  if (el && isVisible(el)) return true;
+                }
+                return false;
+              };
+
+              const collectDocs = () => {
+                const docs = [document];
+                try {
+                  document.querySelectorAll("iframe").forEach((frame) => {
+                    try {
+                      if (frame.contentDocument) docs.push(frame.contentDocument);
+                    } catch (_) {}
+                  });
+                } catch (_) {}
+                return docs;
+              };
+
+              const getCandidates = (doc) =>
+                editorSelectors
+                  .flatMap((sel) => Array.from(doc.querySelectorAll(sel)))
+                  .filter(
+                    (el) =>
+                      isVisible(el) && !el.closest("#emchile-sidebar-frame"),
+                  )
+                  .map((el) => ({
+                    el,
+                    doc,
+                    win: doc.defaultView || window,
+                  }));
+
+              const getAllCandidates = () =>
+                collectDocs().flatMap((doc) => getCandidates(doc));
+
+              const marker = txt.trim().slice(0, 40);
+              const hasMarker = (el) => {
+                if (!marker) return true;
+                if (el.tagName === "TEXTAREA") {
+                  return (el.value || "").includes(marker);
+                }
+                return (el.innerText || "").includes(marker);
+              };
+
+              const scoreEditor = (el) => {
+                let score = 0;
+                const cls = `${el.className || ""} ${el.id || ""}`;
+                if (el.classList.contains("ql-editor")) score += 50;
+                if (el.classList.contains("ProseMirror")) score += 40;
+                if (el.classList.contains("public-DraftEditor-content")) score += 35;
+                if (el.getAttribute("role") === "textbox") score += 20;
+                if (/reply|compose|editor|mail|response|comment/i.test(cls)) score += 15;
+                const rect = el.getBoundingClientRect();
+                score += Math.min((rect.width * rect.height) / 5000, 30);
+                const active = document.activeElement;
+                if (active && (el === active || el.contains(active))) score += 40;
+                return score;
+              };
+
+              // Ensure Reply All is open before inserting
+              if (window.top === window) {
+                if (!hasEditor()) {
+                  const replyAll = findReplyAllButton();
+                  if (replyAll) replyAll.click();
+                  await sleep(700);
+                }
+              } else {
+                // give time for reply editor to render in nested frames
+                await sleep(700);
+              }
+
+              const htmlText = txt.replace(/\n/g, "<br>");
+              let candidates = getAllCandidates();
+              if (!candidates.length) {
+                for (let i = 0; i < 12; i += 1) {
+                  await sleep(400);
+                  candidates = getAllCandidates();
+                  if (candidates.length) break;
+                }
+              }
+              if (!candidates.length) return false;
+
+              candidates = candidates
+                .map((item) => ({
+                  ...item,
+                  score: scoreEditor(item.el),
+                }))
+                .sort((a, b) => b.score - a.score);
+
+              for (const candidate of candidates) {
+                const { el: editor, doc, win } = candidate;
+                if (editor.tagName === "TEXTAREA") {
+                  try {
+                    editor.focus();
+                    const setter = Object.getOwnPropertyDescriptor(
+                      win.HTMLTextAreaElement.prototype,
+                      "value",
+                    )?.set;
+                    if (setter) setter.call(editor, txt);
+                    else editor.value = txt;
+                    editor.dispatchEvent(new win.Event("input", { bubbles: true }));
+                    editor.dispatchEvent(
+                      new win.Event("change", { bubbles: true }),
+                    );
+                    if (hasMarker(editor)) return true;
+                  } catch (_) {}
+                }
+
+                if (editor.classList.contains("ql-editor")) {
+                  try {
+                    const container = editor.closest(".ql-container");
+                    if (container && win.Quill) {
+                      const quill = win.Quill.find(container);
+                      if (quill) {
+                        quill.setText("");
+                        quill.clipboard.dangerouslyPasteHTML(0, htmlText);
+                        editor.dispatchEvent(
+                          new win.Event("input", { bubbles: true }),
+                        );
+                        if (hasMarker(editor)) return true;
+                      }
+                    }
+                  } catch (_) {}
+                }
+
+                try {
+                  editor.focus();
+                  const selection = win.getSelection();
+                  const range = doc.createRange();
+                  range.selectNodeContents(editor);
+                  range.collapse(false);
+                  selection.removeAllRanges();
+                  selection.addRange(range);
+                  if (doc.execCommand("insertText", false, txt)) {
+                    editor.dispatchEvent(new win.Event("input", { bubbles: true }));
+                    editor.dispatchEvent(
+                      new win.Event("change", { bubbles: true }),
+                    );
+                    if (hasMarker(editor)) return true;
+                  }
+                } catch (_) {}
+
+                try {
+                  editor.innerHTML = htmlText;
+                  editor.dispatchEvent(new win.Event("input", { bubbles: true }));
+                  editor.dispatchEvent(new win.Event("change", { bubbles: true }));
+                  if (hasMarker(editor)) return true;
+                } catch (_) {}
+              }
+
+              return false;
+            },
+            args: [text],
+          });
+          sendResponse({ ok: results.some((f) => f.result === true) });
+        } catch (e) {
+          sendResponse({ ok: false, error: e.message });
+        }
+      })();
+      return true;
+    }
+
+    // ── Run auto-fill in page's MAIN world (bypasses Zoho CSP + React) ──────
+    case "EXEC_AUTOFILL": {
+      (async () => {
+        try {
+          const tabId = sender?.tab?.id;
+          if (!tabId) {
+            sendResponse({
+              filled: [],
+              failed: ["No se encontró la pestaña activa."],
+              saved: false,
+            });
+            return;
+          }
+
+          const results = await chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            world: "MAIN",
+            func: async (data) => {
+              const filled = [],
+                failed = [];
+              const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+              const isVisible = (el) => {
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                return (
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  style.visibility !== "hidden" &&
+                  style.display !== "none"
+                );
+              };
+
+              function setVal(inp, val) {
+                if (!inp) return false;
+                try {
+                  inp.focus();
+                  const P =
+                    inp.tagName === "TEXTAREA"
+                      ? HTMLTextAreaElement.prototype
+                      : HTMLInputElement.prototype;
+                  const setter = Object.getOwnPropertyDescriptor(
+                    P,
+                    "value",
+                  )?.set;
+                  if (setter) setter.call(inp, val);
+                  else inp.value = val;
+                  for (const ev of ["input", "change", "keyup", "blur"])
+                    inp.dispatchEvent(new Event(ev, { bubbles: true }));
+                  return true;
+                } catch (_) {
+                  return false;
+                }
+              }
+
+              const FIELD_SELECTOR =
+                "input:not([type=hidden]):not([type=checkbox]):not([type=radio]),select,textarea";
+              const DROPDOWN_TRIGGER_SELECTOR =
+                "[role=combobox],[role=menuitem],[aria-haspopup=listbox]," +
+                "button[class*=dropdown],div[class*=dropdown],span[class*=dropdown]," +
+                "button[class*=select],div[class*=select],span[class*=select]," +
+                "button[class*=picker],div[class*=picker],span[class*=picker]," +
+                "button[class*=chosen],div[class*=chosen],span[class*=chosen]," +
+                "input[aria-label*='select options'],input[data-selector-id='textBoxIcon']";
+
+              function normalizeText(text) {
+                return String(text || "")
+                  .toLowerCase()
+                  .normalize("NFD")
+                  .replace(/[\u0300-\u036f]/g, "")
+                  .replace(/[*\s]/g, "");
+              }
+
+              function textMatches(el, partial) {
+                // Only match the label's own text, not text of its children inputs
+                const ownText = Array.from(el.childNodes)
+                  .filter((n) => n.nodeType === Node.TEXT_NODE)
+                  .map((n) => n.textContent)
+                  .join("")
+                  .replace(/[*\s]/g, "");
+                // Fallback to full textContent but capped to avoid matching huge wrappers
+                const own = normalizeText(ownText);
+                const full = normalizeText(el.textContent);
+                const text = own.length >= 3 ? own : full;
+                // Avoid matching wrappers with long text (e.g. entire panel labels)
+                if (full.length > 60) return false;
+                return Boolean(text && text.includes(partial));
+              }
+
+              function findWrapper(labelEl) {
+                const wrapper = labelEl.closest(
+                  '[class*="field"],[class*="Field"],[class*="row"],[class*="Row"],' +
+                    '[class*="item"],[class*="Item"],[class*="property"],[class*="Property"]',
+                );
+                if (wrapper && wrapper.querySelector(FIELD_SELECTOR))
+                  return wrapper;
+
+                let node = labelEl.parentElement;
+                for (
+                  let depth = 0;
+                  depth < 6 && node;
+                  depth++, node = node.parentElement
+                ) {
+                  if (node.querySelector(FIELD_SELECTOR)) return node;
+                }
+                return null;
+              }
+
+              function getWrapperValue(wrapper) {
+                if (!wrapper) return "";
+                const input = wrapper.querySelector("input,select,textarea");
+                if (input) {
+                  if (input.tagName === "SELECT") {
+                    const opt = input.selectedOptions?.[0];
+                    return opt?.textContent || input.value || "";
+                  }
+                  return input.value || "";
+                }
+                const textEl = wrapper.querySelector(
+                  '[class*="value"],[class*="Value"],[class*="selected"],' +
+                    '[class*="select-value"],[class*="selectValue"],' +
+                    '[class*="current"],[class*="display"],[class*="text"]',
+                );
+                return textEl?.textContent || "";
+              }
+
+              function optionTargets(target) {
+                const t = normalizeText(target);
+                const list = [t];
+                if (t === "high") list.push("alta");
+                if (t === "medium") list.push("media");
+                if (t === "low") list.push("baja");
+                if (t === "otros") list.push("other");
+                return list;
+              }
+
+              function preferredOptionText(target) {
+                const t = normalizeText(target);
+                if (t === "high") return "Alta";
+                if (t === "medium") return "Media";
+                if (t === "low") return "Baja";
+                if (t === "otros") return "Otros";
+                return target;
+              }
+
+              function optionMatches(text, target) {
+                const norm = normalizeText(text);
+                return optionTargets(target).some((t) => t && norm.includes(t));
+              }
+
+              function getOptionText(option) {
+                if (!option) return "";
+                const direct =
+                  option.getAttribute("data-value") ||
+                  option.getAttribute("data-title") ||
+                  option.getAttribute("title") ||
+                  option.getAttribute("aria-label");
+                if (direct) return direct;
+
+                const valueEl = option.querySelector?.(
+                  '[data-selector-id="box"],[data-id="boxComponent"],[class*="listitem-value"],.zd_v2-listitem-value',
+                );
+                if (valueEl?.textContent) return valueEl.textContent;
+
+                const labelledBy = option.getAttribute("aria-labelledby");
+                if (labelledBy) {
+                  const labelEl = document.getElementById(labelledBy);
+                  if (labelEl?.textContent) return labelEl.textContent;
+                }
+
+                return option.textContent || "";
+              }
+
+              function findOptionInScope(scope, optText) {
+                const options = collectOptionElements(scope);
+                for (const o of options) {
+                  if (!isVisible(o)) continue;
+                  if (optionMatches(getOptionText(o), optText)) return o;
+                }
+                return null;
+              }
+
+              async function scrollListForOption(listbox, optText) {
+                if (!listbox) return null;
+                const step = Math.max(
+                  80,
+                  Math.floor(listbox.clientHeight * 0.8),
+                );
+                const maxScrolls = 10;
+                for (let i = 0; i < maxScrolls; i += 1) {
+                  const found = findOptionInScope(listbox, optText);
+                  if (found) return found;
+                  listbox.scrollTop += step;
+                  await wait(120);
+                }
+                listbox.scrollTop = 0;
+                return null;
+              }
+
+              function findDropdownTrigger(labelEl) {
+                const scopes = [];
+                const wrapper = findWrapper(labelEl);
+                if (wrapper) scopes.push(wrapper);
+                if (labelEl.parentElement) scopes.push(labelEl.parentElement);
+                for (const scope of scopes) {
+                  const trigger = scope.querySelector(
+                    DROPDOWN_TRIGGER_SELECTOR,
+                  );
+                  if (trigger && isVisible(trigger)) return trigger;
+                }
+                return null;
+              }
+
+              function getListboxFromTrigger(trigger) {
+                const id =
+                  trigger.getAttribute("aria-controls") ||
+                  trigger.getAttribute("aria-owns");
+                if (id) return document.getElementById(id);
+                return null;
+              }
+
+              function getTextBoxValue(input) {
+                return (
+                  input?.value ||
+                  input?.getAttribute("data-title") ||
+                  input?.getAttribute("aria-activedescendant") ||
+                  ""
+                );
+              }
+
+              function fireOptionClick(option) {
+                const events = ["pointerdown", "mousedown", "mouseup", "click"];
+                for (const type of events) {
+                  option.dispatchEvent(
+                    new MouseEvent(type, {
+                      bubbles: true,
+                      cancelable: true,
+                      view: window,
+                    }),
+                  );
+                }
+              }
+
+              function tryApplyValueToInput(input, optText, optionId) {
+                if (!input) return false;
+                const preferred = preferredOptionText(optText);
+                setVal(input, preferred);
+                if (optionId)
+                  input.setAttribute("aria-activedescendant", optionId);
+                input.setAttribute("data-title", preferred);
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+                input.dispatchEvent(new Event("change", { bubbles: true }));
+                return optionMatches(getTextBoxValue(input), optText);
+              }
+
+              function collectOptionElements(scope) {
+                const selectors = [
+                  '[role="option"]',
+                  '[role="menuitem"]',
+                  "[data-value]",
+                  "[data-title]",
+                  '[data-selector-id="box"]',
+                  '[data-id="boxComponent"]',
+                  '[class*="listitem"]',
+                  "li",
+                  "button",
+                  "div",
+                  "span",
+                ];
+                return scope.querySelectorAll(selectors.join(","));
+              }
+
+              function findClickableOption(option) {
+                if (!option) return null;
+                return (
+                  option.closest?.(
+                    '[data-selector-id="box"],[data-id="boxComponent"],[class*="listitem"]',
+                  ) || option
+                );
+              }
+
+              function findZohoTextBox(partial) {
+                const p = normalizeText(partial);
+                let key = "";
+                if (p.includes("prioridad")) key = "priority";
+                if (p.includes("clasificaci")) key = "class";
+                if (!key) return null;
+                const inputs = document.querySelectorAll(
+                  'input[data-id$="_textBox"],input[data-test-id$="_textBox"]',
+                );
+                for (const input of inputs) {
+                  const dataId = (
+                    input.getAttribute("data-id") || ""
+                  ).toLowerCase();
+                  const testId = (
+                    input.getAttribute("data-test-id") || ""
+                  ).toLowerCase();
+                  if (dataId.includes(key) || testId.includes(key))
+                    return input;
+                }
+                return null;
+              }
+
+              function tryTypeSelect(wrapper, optText) {
+                const preferred = preferredOptionText(optText);
+                const input = wrapper?.querySelector(
+                  'input[type="text"],input[role="combobox"],input[aria-haspopup="listbox"]',
+                );
+                if (!input || !isVisible(input)) return false;
+                if (!setVal(input, preferred)) return false;
+                try {
+                  input.dispatchEvent(
+                    new KeyboardEvent("keydown", {
+                      bubbles: true,
+                      key: "Enter",
+                      keyCode: 13,
+                      which: 13,
+                    }),
+                  );
+                } catch (_) {}
+                return true;
+              }
+
+              // Walk UP from label to find the wrapping field container,
+              // then DOWN inside that container to find the input.
+              function nearbyField(labelEl) {
+                const wrapper = findWrapper(labelEl);
+                if (wrapper) {
+                  const inp = wrapper.querySelector(FIELD_SELECTOR);
+                  if (inp && inp !== labelEl && isVisible(inp)) return inp;
+                }
+                return null;
+              }
+
+              function fieldFor(partial) {
+                const n = normalizeText(partial);
+                // Prefer real <label> elements first — most precise
+                for (const lbl of document.querySelectorAll("label")) {
+                  if (!isVisible(lbl) || !textMatches(lbl, n)) continue;
+                  const fid = lbl.getAttribute("for");
+                  if (fid) {
+                    const el = document.getElementById(fid);
+                    if (el && isVisible(el)) return el;
+                  }
+                  const near = nearbyField(lbl);
+                  if (near) return near;
+                }
+                // Fallback: elements with explicit label-like classes, short text only
+                for (const lbl of document.querySelectorAll(
+                  '[class*="label"],[class*="Label"],[class*="field-title"],[class*="fieldTitle"]',
+                )) {
+                  if (!isVisible(lbl) || !textMatches(lbl, n)) continue;
+                  const near = nearbyField(lbl);
+                  if (near) return near;
+                }
+                return null;
+              }
+
+              async function fillDropdown(partial, optText) {
+                const directTextBox = findZohoTextBox(partial);
+                if (directTextBox && isVisible(directTextBox)) {
+                  directTextBox.click();
+                  await wait(400);
+                  const listbox = getListboxFromTrigger(directTextBox);
+                  if (listbox) {
+                    let option = findOptionInScope(listbox, optText);
+                    if (!option)
+                      option = await scrollListForOption(listbox, optText);
+                    if (option) {
+                      const clickable = findClickableOption(option);
+                      fireOptionClick(clickable || option);
+                      await wait(200);
+                      if (
+                        optionMatches(getTextBoxValue(directTextBox), optText)
+                      )
+                        return true;
+                      return tryApplyValueToInput(
+                        directTextBox,
+                        optText,
+                        option.id,
+                      );
+                    }
+                  } else {
+                    const option = findOptionInScope(document, optText);
+                    if (option) {
+                      const clickable = findClickableOption(option);
+                      fireOptionClick(clickable || option);
+                      await wait(200);
+                      if (
+                        optionMatches(getTextBoxValue(directTextBox), optText)
+                      )
+                        return true;
+                      return tryApplyValueToInput(
+                        directTextBox,
+                        optText,
+                        option.id,
+                      );
+                    }
+                  }
+                  if (tryApplyValueToInput(directTextBox, optText)) return true;
+                }
+
+                const sel = fieldFor(partial);
+                if (sel && sel.tagName === "SELECT") {
+                  const opt = Array.from(sel.options).find(
+                    (o) =>
+                      optionMatches(o.text, optText) ||
+                      optionMatches(o.value, optText),
+                  );
+                  if (!opt) return false;
+                  const setter = Object.getOwnPropertyDescriptor(
+                    HTMLSelectElement.prototype,
+                    "value",
+                  )?.set;
+                  if (setter) setter.call(sel, opt.value);
+                  else sel.value = opt.value;
+                  sel.dispatchEvent(new Event("change", { bubbles: true }));
+                  const selected =
+                    sel.selectedOptions?.[0]?.textContent || sel.value;
+                  return optionMatches(selected, optText);
+                }
+                // Custom Zoho dropdown
+                const n = normalizeText(partial);
+                // Same precise label search as fieldFor
+                const labelSets = [
+                  document.querySelectorAll("label"),
+                  document.querySelectorAll(
+                    '[class*="label"],[class*="Label"],[class*="field-title"],[class*="fieldTitle"]',
+                  ),
+                ];
+                for (const set of labelSets) {
+                  for (const lbl of set) {
+                    if (!isVisible(lbl) || !textMatches(lbl, n)) continue;
+                    const wrapper = findWrapper(lbl);
+                    const trigger = findDropdownTrigger(lbl);
+                    if (trigger) {
+                      trigger.click();
+                      await wait(600);
+                    }
+
+                    const listScopes = document.querySelectorAll(
+                      '[role="listbox"],[class*="dropdown-menu"],[class*="dropdownMenu"],' +
+                        '[class*="select-list"],[class*="selectList"],' +
+                        '[class*="picklist"],[class*="options"]',
+                    );
+                    const optionScopes = listScopes.length
+                      ? Array.from(listScopes)
+                      : [document];
+
+                    const triggerListbox = trigger
+                      ? getListboxFromTrigger(trigger)
+                      : null;
+                    const scopedOptions = triggerListbox
+                      ? [triggerListbox]
+                      : optionScopes;
+
+                    for (const scope of scopedOptions) {
+                      let option = findOptionInScope(scope, optText);
+                      if (!option && scope === triggerListbox) {
+                        option = await scrollListForOption(scope, optText);
+                      }
+                      if (!option) continue;
+
+                      fireOptionClick(option);
+                      await wait(200);
+                      const valueNow = getWrapperValue(wrapper);
+                      if (optionMatches(valueNow, optText)) return true;
+                      const input = wrapper?.querySelector("input");
+                      if (tryApplyValueToInput(input, optText, option.id))
+                        return true;
+                      return false;
+                    }
+                    if (wrapper && tryTypeSelect(wrapper, optText)) {
+                      await wait(200);
+                      const valueNow = getWrapperValue(wrapper);
+                      return optionMatches(valueNow, optText);
+                    }
+                    const active = document.activeElement;
+                    if (active && active.tagName === "INPUT") {
+                      if (setVal(active, preferredOptionText(optText))) {
+                        try {
+                          active.dispatchEvent(
+                            new KeyboardEvent("keydown", {
+                              bubbles: true,
+                              key: "Enter",
+                              keyCode: 13,
+                              which: 13,
+                            }),
+                          );
+                        } catch (_) {}
+                        await wait(200);
+                        const valueNow = wrapper
+                          ? getWrapperValue(wrapper)
+                          : active.value;
+                        return optionMatches(valueNow, optText);
+                      }
+                    }
+                    document.body.click();
+                    return false;
+                  }
+                }
+                return false;
+              }
+
+              try {
+                if (data.ocValue) {
+                  const inp =
+                    fieldFor("ordendecompra") ||
+                    fieldFor("ordencompra") ||
+                    fieldFor("orden");
+                  if (setVal(inp, data.ocValue)) filled.push("Orden de Compra");
+                  else failed.push("Orden de Compra");
+                }
+                if (data.priority) {
+                  if (await fillDropdown("prioridad", data.priority))
+                    filled.push("Prioridad");
+                  else failed.push("Prioridad");
+                }
+                if (await fillDropdown("clasificaci", "Otros"))
+                  filled.push("Clasificaciones");
+                else failed.push("Clasificaciones");
+                await wait(400);
+                let saved = false;
+                for (const btn of document.querySelectorAll(
+                  'button,[role="button"],input[type=submit]',
+                )) {
+                  if (btn.textContent.trim().toLowerCase() === "guardar") {
+                    btn.click();
+                    saved = true;
+                    break;
+                  }
+                }
+                return { filled, failed, saved };
+              } catch (e) {
+                console.error("[EMChile fill]", e);
+                return { filled, failed, saved: false };
+              }
+            },
+            args: [request.data],
+          });
+          const merged = results
+            .map((r) => r.result)
+            .filter(Boolean)
+            .reduce(
+              (best, cur) =>
+                (cur.filled?.length || 0) > (best.filled?.length || 0)
+                  ? cur
+                  : best,
+              { filled: [], failed: [], saved: false },
+            );
+          sendResponse(merged || { filled: [], failed: [], saved: false });
+        } catch (e) {
+          sendResponse({ filled: [], failed: [e.message], saved: false });
+        }
+      })();
+      return true;
+    }
   }
 });
 
@@ -131,6 +937,121 @@ async function analyzeTicket(ticketData) {
 
   await saveToHistory(ticketData, result);
   return result;
+}
+
+// ─── Custom prompt analysis ───────────────────────────────────────────────────
+async function customPromptAnalyze({
+  ticketData,
+  currentResult,
+  userPrompt,
+  attachment,
+}) {
+  const settings = await getSettings();
+
+  if (!settings.apiKey || !settings.apiKey.startsWith("sk-")) {
+    throw new Error(
+      "API Key no configurada. Haz clic en el ícono ⚡ de la extensión para agregarla.",
+    );
+  }
+
+  // Force gpt-4o when an image/PDF is attached — vision is required
+  const model = attachment ? "gpt-4o" : settings.model || "gpt-4o-mini";
+
+  const systemMsg = `Eres un asistente de soporte especializado para el equipo de postventa de EMChile. \
+Se te proporcionará el contexto completo de un ticket de Zoho Desk (conversación, datos del cliente, órdenes de compra, etc.) \
+junto con una instrucción específica del agente. Tu tarea es generar la respuesta más óptima y empática posible según lo que se te pide.
+${attachment ? "\nEl agente también ha adjuntado un documento o imagen. Analízalo en detalle y úsalo como fuente primaria de información para cumplir la instrucción." : ""}
+REGLAS ABSOLUTAS:
+• Lee el contexto del ticket en detalle antes de responder
+• Genera exactamente lo que el agente necesita según su instrucción
+• Si te piden redactar un mensaje al cliente, sé empático, claro y firma como "Equipo EMChile"
+• NUNCA inventes información que no esté en el contexto o en el documento adjunto
+• NUNCA prometas fechas específicas ni tomes decisiones comerciales
+• Responde únicamente con el texto solicitado, sin explicaciones adicionales ni formato JSON`;
+
+  // Build rich context from ticket data
+  const contextLines = [`CONTEXTO DEL TICKET:`];
+  if (ticketData) {
+    contextLines.push(buildUserPrompt(ticketData));
+  }
+  if (currentResult) {
+    contextLines.push(`\nANÁLISIS PREVIO DEL TICKET:`);
+    if (currentResult.summary)
+      contextLines.push(`Resumen: ${currentResult.summary}`);
+    if (currentResult.clientReply)
+      contextLines.push(
+        `Respuesta estándar generada: ${currentResult.clientReply}`,
+      );
+    if (currentResult.internalMessage)
+      contextLines.push(
+        `Comunicación interna: ${currentResult.internalMessage}`,
+      );
+  }
+
+  const textContent = `${contextLines.join("\n")}\n\n---\nINSTRUCCIÓN DEL AGENTE:\n${userPrompt}`;
+
+  // Build message content — plain text or multipart when attachment present
+  let userContent;
+  if (attachment) {
+    userContent = [{ type: "text", text: textContent }];
+    if (attachment.type === "image") {
+      userContent.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${attachment.mimeType};base64,${attachment.base64}`,
+          detail: "high",
+        },
+      });
+    } else if (attachment.type === "pdf") {
+      // OpenAI chat completions supports PDF via the file content type (gpt-4o)
+      userContent.push({
+        type: "file",
+        file: {
+          filename: attachment.name || "document.pdf",
+          file_data: `data:application/pdf;base64,${attachment.base64}`,
+        },
+      });
+    }
+  } else {
+    userContent = textContent;
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${settings.apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemMsg },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.3,
+    }),
+  });
+
+  if (!response.ok) {
+    let msg = `Error HTTP ${response.status}`;
+    try {
+      const err = await response.json();
+      if (err.error?.message) msg = err.error.message;
+      if (response.status === 401) msg = "API Key inválida o revocada.";
+      if (response.status === 429)
+        msg = "Límite de solicitudes alcanzado. Espera un momento.";
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content)
+    throw new Error("Respuesta vacía del modelo. Intenta nuevamente.");
+
+  return { reply: content.trim() };
 }
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
@@ -214,8 +1135,11 @@ RESPONDE ÚNICAMENTE con un objeto JSON válido con esta estructura exacta (sin 
 
 function buildUserPrompt(ticketData) {
   const lines = [`TICKET ID: ${ticketData.ticketId || "No detectado"}`];
-  const conversationText = ticketData.conversation || "No se pudo extraer la conversación del ticket.";
-  const criticalSignals = detectCriticalSignals(`${ticketData.subject || ""}\n${conversationText}\n${ticketData.additionalData || ""}`);
+  const conversationText =
+    ticketData.conversation || "No se pudo extraer la conversación del ticket.";
+  const criticalSignals = detectCriticalSignals(
+    `${ticketData.subject || ""}\n${conversationText}\n${ticketData.additionalData || ""}`,
+  );
 
   if (ticketData.subject) lines.push(`ASUNTO: ${ticketData.subject}`);
   if (ticketData.customerName && ticketData.customerName !== "No detectado") {
@@ -237,12 +1161,20 @@ function buildUserPrompt(ticketData) {
   // Explicitly list extracted OC numbers so the AI always sees them
   if (ticketData.ocNumbers && ticketData.ocNumbers.length) {
     lines.push("");
-    lines.push(`ÓRDENES DE COMPRA DETECTADAS EN EL TICKET (${ticketData.ocNumbers.length}):`);
+    lines.push(
+      `ÓRDENES DE COMPRA DETECTADAS EN EL TICKET (${ticketData.ocNumbers.length}):`,
+    );
     ticketData.ocNumbers.forEach((oc, i) => lines.push(`  OC ${i + 1}: ${oc}`));
-    lines.push("IMPORTANTE: Usa estos números exactos en la comunicación interna y no los reemplaces por 'sin OC'.");
-    lines.push("IMPORTANTE: Solo consideres como OC válidas las que terminan en AG25, AG26, COT25, LE, LP, SE, LE25, LP25, SE25, LE26, LP26 o SE26.");
+    lines.push(
+      "IMPORTANTE: Usa estos números exactos en la comunicación interna y no los reemplaces por 'sin OC'.",
+    );
+    lines.push(
+      "IMPORTANTE: Solo consideres como OC válidas las que terminan en AG25, AG26, COT25, COT26, LE, LP, SE, LE25, LP25, SE25, LE26, LP26 o SE26.",
+    );
     if (ticketData.ocNumbers.length > 1) {
-      lines.push("IMPORTANTE: La respuesta al cliente debe dejar claro que la solicitud corresponde a TODAS las OCs detectadas, no solo a una.");
+      lines.push(
+        "IMPORTANTE: La respuesta al cliente debe dejar claro que la solicitud corresponde a TODAS las OCs detectadas, no solo a una.",
+      );
     }
   }
 
@@ -250,14 +1182,12 @@ function buildUserPrompt(ticketData) {
     lines.push("");
     lines.push(`SEÑALES CRÍTICAS DETECTADAS (${criticalSignals.length}):`);
     criticalSignals.forEach((signal, i) => lines.push(`  ${i + 1}. ${signal}`));
-    lines.push("IMPORTANTE: Si existe multa, sanción, incumplimiento o plazo de descargos, el summary debe mencionarlo explícitamente en la primera oración.");
+    lines.push(
+      "IMPORTANTE: Si existe multa, sanción, incumplimiento o plazo de descargos, el summary debe mencionarlo explícitamente en la primera oración.",
+    );
   }
 
-  lines.push(
-    "",
-    "CONVERSACIÓN COMPLETA:",
-    conversationText,
-  );
+  lines.push("", "CONVERSACIÓN COMPLETA:", conversationText);
 
   if (ticketData.additionalData) {
     lines.push("", "CAMPOS ADICIONALES DEL TICKET:", ticketData.additionalData);
@@ -274,15 +1204,36 @@ function detectCriticalSignals(text) {
   const normalized = String(text || "").toLowerCase();
   const signalPatterns = [
     { pattern: /multa|multas/, label: "Mención de multa o multas" },
-    { pattern: /sanci[oó]n|sanciones/, label: "Mención de sanción o sanciones" },
-    { pattern: /incumplimiento|incumple|incumplido/, label: "Mención de incumplimiento" },
+    {
+      pattern: /sanci[oó]n|sanciones/,
+      label: "Mención de sanción o sanciones",
+    },
+    {
+      pattern: /incumplimiento|incumple|incumplido/,
+      label: "Mención de incumplimiento",
+    },
     { pattern: /descargos?/, label: "Existe plazo o solicitud de descargos" },
-    { pattern: /procedimiento de aplicaci[oó]n de multa/, label: "Inicio de procedimiento de aplicación de multa" },
+    {
+      pattern: /procedimiento de aplicaci[oó]n de multa/,
+      label: "Inicio de procedimiento de aplicación de multa",
+    },
     { pattern: /resoluci[oó]n exenta/, label: "Mención de resolución exenta" },
-    { pattern: /notificaci[oó]n|notifica/, label: "Existe notificación formal" },
-    { pattern: /productos defectuosos|deficiencias en su calidad|mal estado/, label: "Mención de productos defectuosos o problemas de calidad" },
-    { pattern: /plazo.*48 horas|48 horas/, label: "Existe plazo de 48 horas u otro plazo administrativo" },
-    { pattern: /devoluci[oó]n|devolver/, label: "Mención de devolución de productos" },
+    {
+      pattern: /notificaci[oó]n|notifica/,
+      label: "Existe notificación formal",
+    },
+    {
+      pattern: /productos defectuosos|deficiencias en su calidad|mal estado/,
+      label: "Mención de productos defectuosos o problemas de calidad",
+    },
+    {
+      pattern: /plazo.*48 horas|48 horas/,
+      label: "Existe plazo de 48 horas u otro plazo administrativo",
+    },
+    {
+      pattern: /devoluci[oó]n|devolver/,
+      label: "Mención de devolución de productos",
+    },
   ];
 
   return signalPatterns
@@ -296,14 +1247,19 @@ function normalizeAnalysis(ticketData, result) {
     summary: String(result.summary || "").trim(),
     clientReply: String(result.clientReply || "").trim(),
     internalMessage: String(result.internalMessage || "").trim(),
-    shouldReply: typeof result.shouldReply === "boolean" ? result.shouldReply : true,
+    shouldReply:
+      typeof result.shouldReply === "boolean" ? result.shouldReply : true,
     confidence: clampConfidence(result.confidence),
   };
 
   const criticalContext = getCriticalContext(ticketData);
 
   if (criticalContext.hasRisk) {
-    normalized.summary = ensureCriticalSummary(normalized.summary, criticalContext, ticketData);
+    normalized.summary = ensureCriticalSummary(
+      normalized.summary,
+      criticalContext,
+      ticketData,
+    );
     normalized.internalMessage = ensureCriticalInternalMessage(
       normalized.internalMessage,
       criticalContext,
@@ -323,10 +1279,18 @@ function getCriticalContext(ticketData) {
   const text = `${ticketData.subject || ""}\n${ticketData.conversation || ""}\n${ticketData.additionalData || ""}`;
   const normalized = text.toLowerCase();
   const signals = detectCriticalSignals(text);
-  const hasPenalty = /multa|multas|sanci[oó]n|sanciones|procedimiento de aplicaci[oó]n de multa/.test(normalized);
-  const hasBreach = /incumplimiento|productos defectuosos|deficiencias en su calidad|mal estado/.test(normalized);
+  const hasPenalty =
+    /multa|multas|sanci[oó]n|sanciones|procedimiento de aplicaci[oó]n de multa/.test(
+      normalized,
+    );
+  const hasBreach =
+    /incumplimiento|productos defectuosos|deficiencias en su calidad|mal estado/.test(
+      normalized,
+    );
   const hasDeadline = /descargos?|48 horas|plazo/.test(normalized);
-  const hasFormalNotice = /notificaci[oó]n|resoluci[oó]n exenta/.test(normalized);
+  const hasFormalNotice = /notificaci[oó]n|resoluci[oó]n exenta/.test(
+    normalized,
+  );
   const amountMatch = text.match(/\$\s?[\d\.]+/g) || [];
 
   return {
@@ -342,7 +1306,11 @@ function getCriticalContext(ticketData) {
 
 function ensureCriticalSummary(summary, criticalContext, ticketData) {
   const lower = summary.toLowerCase();
-  if (/(multa|sanci[oó]n|incumplimiento|descargos?|notificaci[oó]n formal)/.test(lower)) {
+  if (
+    /(multa|sanci[oó]n|incumplimiento|descargos?|notificaci[oó]n formal)/.test(
+      lower,
+    )
+  ) {
     return summary;
   }
 
@@ -362,8 +1330,14 @@ function ensureCriticalSummary(summary, criticalContext, ticketData) {
   return `${lead} ${summary}`.trim();
 }
 
-function ensureCriticalInternalMessage(internalMessage, criticalContext, ticketData) {
-  const lines = String(internalMessage || "").split("\n").filter(Boolean);
+function ensureCriticalInternalMessage(
+  internalMessage,
+  criticalContext,
+  ticketData,
+) {
+  const lines = String(internalMessage || "")
+    .split("\n")
+    .filter(Boolean);
   const firstLine = lines[0] || buildFallbackInternalHeader(ticketData);
   const rest = lines.slice(1);
   const combined = rest.join(" ").toLowerCase();
@@ -378,7 +1352,9 @@ function ensureCriticalInternalMessage(internalMessage, criticalContext, ticketD
 
 function buildFallbackInternalHeader(ticketData) {
   const ticketId = ticketData.ticketId || "SIN-ID";
-  const ocText = ticketData.ocNumbers?.length ? ticketData.ocNumbers.join(", ") : "sin OC";
+  const ocText = ticketData.ocNumbers?.length
+    ? ticketData.ocNumbers.join(", ")
+    : "sin OC";
   return `#${ticketId} – ID OC ${ocText}`;
 }
 
@@ -414,7 +1390,10 @@ function buildRiskAlert(criticalContext, ticketData) {
   return {
     level: "high",
     title,
-    reasons: [...criticalContext.signals.slice(0, 4), ...(ocText ? [ocText] : [])],
+    reasons: [
+      ...criticalContext.signals.slice(0, 4),
+      ...(ocText ? [ocText] : []),
+    ],
   };
 }
 

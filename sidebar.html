@@ -91,7 +91,12 @@
         <div class="oc-bar hidden" id="js-ocbar">
           <div class="oc-bar-head">
             <span class="oc-label">OC detectadas</span>
-            <button class="btn-copy" id="js-copy-ocs">⧉ Copiar OCs</button>
+            <div class="oc-bar-actions">
+              <button class="btn-copy" id="js-copy-ocs">⧉ Copiar OCs</button>
+              <button class="btn-autofill" id="js-autofill">
+                ⚡ AUTO-COMPLETAR-OC
+              </button>
+            </div>
           </div>
           <div class="oc-list" id="js-oclist"></div>
         </div>
@@ -118,6 +123,86 @@
               </div>
             </div>
             <div class="card-body" id="js-client">—</div>
+          </div>
+
+          <!-- ── PROMPT PERSONALIZADO ─────────────────────────────────────── -->
+          <div class="card cp-card">
+            <div class="card-head">
+              <span class="clabel">✦ Prompt personalizado</span>
+            </div>
+            <div class="cp-body">
+              <textarea
+                id="js-cp-input"
+                class="cp-textarea"
+                rows="4"
+                placeholder="Ej: esta es la factura del cliente, indícame los números de OT que aparecen y redacta una respuesta con esa información…"
+              ></textarea>
+
+              <!-- Attachment zone -->
+              <div class="cp-attach-row">
+                <input
+                  type="file"
+                  id="js-cp-file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                  class="hidden"
+                />
+                <label for="js-cp-file" class="btn-cp-attach">
+                  📎 Adjuntar PDF / Imagen
+                </label>
+                <span class="cp-attach-hint">o pega imagen con Ctrl+V</span>
+              </div>
+
+              <!-- Attachment preview (shown when a file/image is loaded) -->
+              <div class="cp-attach-preview hidden" id="js-cp-preview">
+                <span class="cp-attach-file-icon" id="js-cp-attach-icon"
+                  >🖼</span
+                >
+                <span class="cp-attach-name" id="js-cp-attach-name"></span>
+                <button
+                  class="cp-attach-remove"
+                  id="js-cp-remove"
+                  type="button"
+                  title="Quitar adjunto"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <button class="btn-cp-run" id="js-cp-run">
+                <span class="cp-run-icon">✦</span>
+                <span class="cp-run-label">Generar respuesta</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ── ANTI-MUESTRAS ──────────────────────────────────────────── -->
+          <div class="card anti-card">
+            <div class="card-head">
+              <span class="clabel">Anti-muestras</span>
+            </div>
+            <div class="cp-body">
+              <p class="anti-desc">
+                Respuesta breve: solo con stock disponible, sin promesas.
+              </p>
+              <button class="btn-cp-run btn-anti-run" id="js-anti-sample">
+                <span class="cp-run-icon">✦</span>
+                <span class="cp-run-label">Generar anti-muestras</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ── RESPUESTA PERSONALIZADA ──────────────────────────────────── -->
+          <div class="card hidden" id="js-cp-result-card">
+            <div class="card-head">
+              <span class="clabel">Respuesta personalizada</span>
+              <div class="cacts">
+                <button class="btn-copy" id="js-cp-copy">⧉ Copiar</button>
+                <button class="btn-insert" id="js-cp-insert">
+                  ↗ Insertar en Zoho
+                </button>
+              </div>
+            </div>
+            <div class="card-body" id="js-cp-response">—</div>
           </div>
         </div>
 

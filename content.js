@@ -171,6 +171,7 @@
     const subject = extractSubject();
     const conversation = extractConversation();
     const additionalData = extractCustomFields();
+    const conversationSupplement = extractConversationSupplement();
     return {
       ticketId: extractTicketId(),
       subject,
@@ -180,7 +181,12 @@
       priority: extractPriority(),
       createdAt: extractCreatedAt(),
       conversation,
-      ocNumbers: extractOCNumbers(conversation, additionalData, subject),
+      ocNumbers: extractOCNumbers(
+        conversation,
+        conversationSupplement,
+        additionalData,
+        subject,
+      ),
       additionalData,
       url: window.location.href,
       extractedAt: new Date().toISOString(),
@@ -200,7 +206,9 @@
 
   function extractTicketId() {
     // 1. Standard path-based URL: /tickets/1479
-    const pathMatch = window.location.pathname.match(/\/tickets\/(\d{3,})(?:[/?]|$)/i);
+    const pathMatch = window.location.pathname.match(
+      /\/tickets\/(\d{3,})(?:[/?]|$)/i,
+    );
     if (pathMatch) return pathMatch[1];
 
     // 2. Hash-based SPA URL: #Cases/dv/1479  or  #Tickets/1479  etc.
@@ -232,8 +240,8 @@
     // 5. Scan visible text for "#1479" pattern (header, breadcrumb, title)
     const scanTargets = document.querySelectorAll(
       'h1, h2, h3, [class*="subject"], [class*="title"], [class*="header"], ' +
-      '[class*="breadcrumb"], [class*="ticket-id"], [class*="ticketId"], ' +
-      '.page-title, .ticket-header'
+        '[class*="breadcrumb"], [class*="ticket-id"], [class*="ticketId"], ' +
+        ".page-title, .ticket-header",
     );
     for (const el of scanTargets) {
       const hit = el.textContent.match(/#(\d{3,})/);
@@ -257,9 +265,11 @@
 
   /** Extract OC / purchase order numbers from text (e.g. 1070620-38033-ag25) */
   function extractOCNumbers(...sources) {
-    const rawText = sources.filter(Boolean).join("\n") || document.body.innerText || "";
+    const rawText =
+      sources.filter(Boolean).join("\n") || document.body.innerText || "";
     const preparedText = prepareOCExtractionText(rawText);
-    const suffixPattern = "(?:AG25|AG26|COT25|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)";
+    const suffixPattern =
+      "(?:AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)";
     const strictOcRegex = new RegExp(
       `\\b(\\d{3,8}-+\\d{2,6}-+${suffixPattern})\\b`,
       "gi",
@@ -289,7 +299,7 @@
       .replace(/[–]/g, "-")
       .replace(/-{2,}/g, "-")
       .replace(
-        /(AG25|AG26|COT25|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)(?=\d{3,8}-+\d{2,6}-+)/gi,
+        /(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)(?=\d{3,8}-+\d{2,6}-+)/gi,
         "$1\n",
       );
   }
@@ -302,7 +312,11 @@
       .replace(/^OC[:\s#-]*/i, "")
       .toUpperCase();
 
-    if (!/^\d{3,8}-\d{2,6}-(AG25|AG26|COT25|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)$/.test(normalized)) {
+    if (
+      !/^\d{3,8}-\d{2,6}-(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)$/.test(
+        normalized,
+      )
+    ) {
       return null;
     }
 
@@ -409,7 +423,9 @@
     ];
     expandSelectors.forEach((sel) => {
       document.querySelectorAll(sel).forEach((btn) => {
-        try { btn.click(); } catch (_) {}
+        try {
+          btn.click();
+        } catch (_) {}
       });
     });
 
@@ -423,7 +439,7 @@
       ".zd-thread-item",
       '[class*="zd-thread"]',
       ".thread-item",
-      '[class*="thread-item"]:not([class*="thread-items"])',  // avoid wrapper
+      '[class*="thread-item"]:not([class*="thread-items"])', // avoid wrapper
       // Reply / response blocks
       ".reply-item",
       '[class*="reply-item"]',
@@ -457,8 +473,11 @@
 
     for (const sel of candidates) {
       let nodes;
-      try { nodes = document.querySelectorAll(sel); }
-      catch (_) { continue; }
+      try {
+        nodes = document.querySelectorAll(sel);
+      } catch (_) {
+        continue;
+      }
       if (!nodes.length) continue;
 
       const msgs = extractMessagesFromNodes(nodes);
@@ -468,32 +487,36 @@
       }
     }
 
+    const supplement = extractConversationSupplement();
+
     if (bestResult.length) {
-      return bestResult.join("\n\n─────\n\n");
+      const bestText = bestResult.join("\n\n─────\n\n");
+      if (shouldAppendConversationSupplement(bestText, supplement)) {
+        return `${bestText}\n\n─────\n\n[Contexto complementario visible del hilo]:\n${supplement}`;
+      }
+      return bestText;
     }
 
     // ── Step 3: brute-force — scan all visible text blocks in ticket area ────
-    const ticketRoot = document.querySelector(
-      '#ticketDetail, .ticket-detail, [class*="ticket-detail"], ' +
-      '[class*="ticket-view"], [class*="ticketView"], ' +
-      '[class*="conversations"], [role="main"], main'
-    );
+    const ticketRoot = getConversationRoot();
 
     if (ticketRoot) {
       // Look for direct children with substantial text
       const blocks = [];
-      ticketRoot.querySelectorAll(
-        'div[class], article, section, li[class]'
-      ).forEach((el) => {
-        // Skip if it's a wrapper that contains other matches
-        const childHits = el.querySelectorAll('div[class], article, li[class]');
-        if (childHits.length > 4) return; // likely a container, skip
+      ticketRoot
+        .querySelectorAll("div[class], article, section, li[class]")
+        .forEach((el) => {
+          // Skip if it's a wrapper that contains other matches
+          const childHits = el.querySelectorAll(
+            "div[class], article, li[class]",
+          );
+          if (childHits.length > 4) return; // likely a container, skip
 
-        const text = el.textContent.replace(/\s+/g, ' ').trim();
-        if (text.length > 40 && text.length < 15000) {
-          blocks.push(text);
-        }
-      });
+          const text = el.textContent.replace(/\s+/g, " ").trim();
+          if (text.length > 40 && text.length < 15000) {
+            blocks.push(text);
+          }
+        });
 
       // Deduplicate: remove texts fully contained in another text
       const deduped = deduplicateTexts(blocks);
@@ -507,11 +530,69 @@
       // Last resort: raw text of the ticket area
       const raw = ticketRoot.textContent.replace(/\s+/g, " ").trim();
       if (raw.length > 50) {
-        return "[Contenido extraído — texto completo del área]:\n" + raw.substring(0, 8000);
+        return (
+          "[Contenido extraído — texto completo del área]:\n" +
+          raw.substring(0, 8000)
+        );
       }
     }
 
     return "No se pudo extraer la conversación. Asegúrate de estar dentro del detalle de un ticket específico.";
+  }
+
+  function getConversationRoot() {
+    return document.querySelector(
+      '#ticketDetail, .ticket-detail, [class*="ticket-detail"], ' +
+        '[class*="ticket-view"], [class*="ticketView"], ' +
+        '[class*="conversations"], [class*="conversation"], [role="main"], main',
+    );
+  }
+
+  function extractConversationSupplement() {
+    const ticketRoot = getConversationRoot();
+    if (!ticketRoot) return "";
+
+    const raw = ticketRoot.innerText
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]+/g, " ")
+      .trim();
+
+    if (!raw || raw.length < 60) return "";
+    return raw.substring(0, 12000);
+  }
+
+  function shouldAppendConversationSupplement(bestText, supplement) {
+    if (!supplement) return false;
+
+    const bestOcCount = extractOCNumbers(bestText).length;
+    const supplementOcCount = extractOCNumbers(supplement).length;
+    if (supplementOcCount > bestOcCount) return true;
+
+    const bestNorm = bestText.replace(/\s+/g, " ").trim();
+    const supplementNorm = supplement.replace(/\s+/g, " ").trim();
+    if (!bestNorm || !supplementNorm) return false;
+
+    const markers = [
+      "privado",
+      "interna",
+      "interno",
+      "private",
+      "oc",
+      "orden de compra",
+    ];
+    if (
+      markers.some(
+        (marker) =>
+          supplementNorm.toLowerCase().includes(marker) &&
+          !bestNorm.toLowerCase().includes(marker),
+      )
+    ) {
+      return true;
+    }
+
+    return !bestNorm.includes(
+      supplementNorm.slice(0, Math.min(200, supplementNorm.length)),
+    );
   }
 
   /** Extract structured messages from a NodeList */
@@ -532,26 +613,26 @@
 
       // Sender
       const senderEl = node.querySelector(
-        '.sender-name, .from-name, .author-name, ' +
-        '[class*="sender"], [class*="author"], [class*="from-name"], ' +
-        '[class*="fromName"], [class*="contact-name"]'
+        ".sender-name, .from-name, .author-name, " +
+          '[class*="sender"], [class*="author"], [class*="from-name"], ' +
+          '[class*="fromName"], [class*="contact-name"]',
       );
       const sender = senderEl?.textContent.trim() || `Mensaje ${i + 1}`;
 
       // Timestamp
       const timeEl =
         node.querySelector("time[datetime]") ||
-        node.querySelector('[class*="time"], [class*="date"], [class*="timestamp"]');
+        node.querySelector(
+          '[class*="time"], [class*="date"], [class*="timestamp"]',
+        );
       const ts =
-        timeEl?.getAttribute("datetime") ||
-        timeEl?.textContent.trim() ||
-        "";
+        timeEl?.getAttribute("datetime") || timeEl?.textContent.trim() || "";
 
       // Prefer an inner body element, but keep the full node text if it contains
       // more OC references than the narrowed body selection.
       const bodyEl = node.querySelector(
         '[class*="body"], [class*="content"], [class*="text"], ' +
-        '[class*="mail-body"], [class*="mailBody"], blockquote'
+          '[class*="mail-body"], [class*="mailBody"], blockquote',
       );
       const bodyText = bodyEl
         ? bodyEl.textContent.replace(/\s+/g, " ").trim()
@@ -570,27 +651,83 @@
 
   /** Remove texts that are fully contained in (substrings of) another text */
   function deduplicateTexts(arr) {
-    return arr.filter((t, i) =>
-      !arr.some((other, j) => j !== i && other.includes(t) && other.length > t.length)
+    return arr.filter(
+      (t, i) =>
+        !arr.some(
+          (other, j) => j !== i && other.includes(t) && other.length > t.length,
+        ),
     );
   }
 
   function extractCustomFields() {
     const lines = [];
-    document
-      .querySelectorAll(
-        '[class*="custom-field"],[class*="customField"],.field-wrap',
-      )
-      .forEach((w) => {
-        const label = w
-          .querySelector('label,[class*="label"]')
-          ?.textContent.trim();
-        const value = w
-          .querySelector('[class*="value"],span,p')
-          ?.textContent.trim();
-        if (label && value && value !== label) lines.push(`${label}: ${value}`);
+    const seen = new Set();
+
+    // Try many wrapper selectors — Zoho uses different class names per version
+    const WRAPPERS = [
+      '[class*="custom-field"]',
+      '[class*="customField"]',
+      '[class*="field-wrap"]',
+      '[class*="fieldWrap"]',
+      '[class*="field-view"]',
+      '[class*="fieldView"]',
+      '[class*="ticket-field"]',
+      '[class*="ticketField"]',
+      '[class*="property-item"]',
+      '[class*="propertyItem"]',
+      '[class*="zd-field"]',
+      '[class*="info-field"]',
+      '[class*="infoField"]',
+      '[class*="field-item"]',
+      '[class*="fieldItem"]',
+    ];
+    for (const sel of WRAPPERS) {
+      document.querySelectorAll(sel).forEach((w) => {
+        const labelEl = w.querySelector(
+          'label,[class*="label"],[class*="Label"],[class*="title"],[class*="Title"]',
+        );
+        const label = labelEl?.textContent.replace(/[*]/g, "").trim();
+        if (!label || seen.has(label) || label.length > 80) return;
+        const valueEl = w.querySelector(
+          '[class*="value"],[class*="Value"],[class*="content"],[class*="Content"],span[class],p[class]',
+        );
+        const value = valueEl?.textContent.trim();
+        if (value && value !== label) {
+          seen.add(label);
+          lines.push(`${label}: ${value}`);
+        }
       });
-    return lines.slice(0, 10).join("\n") || null;
+    }
+
+    // Brute-force: scan the ticket properties panel (left sidebar)
+    const propPanel = document.querySelector(
+      '.ticket-properties,[class*="ticket-properties"],[class*="ticketProperties"],' +
+        '[class*="ticket-info"],[class*="ticketInfo"],[class*="properties-panel"],' +
+        '[class*="side-details"],[class*="sideDetails"],[class*="ticketDetail"]',
+    );
+    if (propPanel) {
+      propPanel
+        .querySelectorAll(
+          'label,[class*="field-label"],[class*="fieldLabel"],[class*="prop-label"],[class*="propLabel"]',
+        )
+        .forEach((lbl) => {
+          const label = lbl.textContent.replace(/[*]/g, "").trim();
+          if (!label || seen.has(label) || label.length > 80) return;
+          let valEl = lbl.nextElementSibling;
+          if (!valEl?.textContent.trim()) {
+            valEl = lbl.parentElement?.querySelector(
+              '[class*="value"],[class*="Value"],[class*="content"],span[class],p[class]',
+            );
+          }
+          const value = valEl?.textContent.trim();
+          if (value && value !== label) {
+            seen.add(label);
+            lines.push(`${label}: ${value}`);
+          }
+        });
+    }
+
+    return lines.slice(0, 30).join("\n") || null;
   }
 
   // ─── SIDEBAR COMMUNICATION ─────────────────────────────────────────────────
@@ -614,53 +751,68 @@
       case "INSERT_IN_ZOHO":
         insertTextInZoho(data?.text || "");
         break;
+      case "AUTO_FILL_FIELDS":
+        autoFillTicketFields(data || {});
+        break;
     }
   });
 
   // ─── INSERT IN ZOHO EDITOR ─────────────────────────────────────────────────
+  // Delegates to background.js which uses chrome.scripting.executeScript with
+  // world:"MAIN" — this bypasses Zoho's CSP and gives access to window.Quill.
   function insertTextInZoho(text) {
     if (!text) return;
-    const editors = [
-      ".ql-editor",
-      '[class*="replyEditor"] [contenteditable="true"]',
-      '[class*="reply-editor"] [contenteditable="true"]',
-      '[contenteditable="true"]',
-      ".mce-content-body",
-      'textarea[name*="reply"]',
-      'textarea[id*="reply"]',
-      'textarea[class*="reply"]',
-      "#replyTextArea",
-      "textarea",
-    ];
-    for (const sel of editors) {
-      const el = document.querySelector(sel);
-      if (!el) continue;
-      el.focus();
-      if (el.tagName === "TEXTAREA") {
-        el.value = text;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      } else {
-        const sel2 = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        sel2.removeAllRanges();
-        sel2.addRange(range);
-        document.execCommand("insertText", false, text);
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      postToSidebar({ type: "INSERT_SUCCESS" });
-      return;
-    }
-    // Clipboard fallback
-    navigator.clipboard.writeText(text).then(() => {
-      postToSidebar({
-        type: "INSERT_FALLBACK",
-        message: "✓ Copiado al portapapeles (editor no detectado)",
+    bgMessage({ type: "EXEC_INSERT", data: { text } })
+      .then((res) => {
+        if (res?.ok) {
+          postToSidebar({ type: "INSERT_SUCCESS" });
+        } else {
+          navigator.clipboard.writeText(text).then(() =>
+            postToSidebar({
+              type: "INSERT_FALLBACK",
+              message:
+                "✓ Copiado al portapapeles — pega con Ctrl+V en el editor",
+            }),
+          );
+        }
+      })
+      .catch(() => {
+        navigator.clipboard.writeText(text).then(() =>
+          postToSidebar({
+            type: "INSERT_FALLBACK",
+            message: "✓ Copiado al portapapeles — pega con Ctrl+V en el editor",
+          }),
+        );
       });
-    });
   }
 
+  // ─── AUTO-FILL TICKET FIELDS ───────────────────────────────────────────────
+  // Delegates to background.js which uses chrome.scripting.executeScript with
+  // world:"MAIN" — React inputs and custom Zoho dropdowns both respond.
+  function autoFillTicketFields({ ocNumbers, licitacion, priority }) {
+    const ocValue =
+      Array.isArray(ocNumbers) && ocNumbers.length ? ocNumbers[0] : null;
+    bgMessage({
+      type: "EXEC_AUTOFILL",
+      data: {
+        ocValue: ocValue || null,
+        licitacion: licitacion || null,
+        priority: priority || null,
+      },
+    })
+      .then((res) =>
+        postToSidebar({
+          type: "AUTO_FILL_RESULT",
+          data: res || { filled: [], failed: [], saved: false },
+        }),
+      )
+      .catch((err) =>
+        postToSidebar({
+          type: "AUTO_FILL_RESULT",
+          data: { filled: [], failed: [err.message], saved: false },
+        }),
+      );
+  }
   // ─── SPA NAVIGATION OBSERVER ───────────────────────────────────────────────
   function setupMutationObserver() {
     let debounce;
