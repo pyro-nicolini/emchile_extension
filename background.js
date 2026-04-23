@@ -956,14 +956,16 @@ async function customPromptAnalyze({
 
   // Force gpt-4o when an image/PDF is attached — vision is required
   const model = attachment ? "gpt-4o" : settings.model || "gpt-4o-mini";
+  const cleanUserPrompt = sanitizeAgentInstruction(userPrompt);
 
   const systemMsg = `Eres un asistente de soporte especializado para el equipo de postventa de EMChile. \
 Se te proporcionará el contexto completo de un ticket de Zoho Desk (conversación, datos del cliente, órdenes de compra, etc.) \
 junto con una instrucción específica del agente. Tu tarea es generar la respuesta más óptima y empática posible según lo que se te pide.
 ${attachment ? "\nEl agente también ha adjuntado un documento o imagen. Analízalo en detalle y úsalo como fuente primaria de información para cumplir la instrucción." : ""}
 REGLAS ABSOLUTAS:
-• Lee el contexto del ticket en detalle antes de responder
-• Genera exactamente lo que el agente necesita según su instrucción
+• La INSTRUCCIÓN DEL AGENTE tiene prioridad absoluta sobre cualquier respuesta estándar previa
+• Genera exactamente lo que el agente necesita según su instrucción, sin desviarte a plantillas por defecto
+• Usa el contexto del ticket solo como apoyo para completar la instrucción del agente
 • Si te piden redactar un mensaje al cliente, sé empático, claro y firma como "Equipo EMChile"
 • NUNCA inventes información que no esté en el contexto o en el documento adjunto
 • NUNCA prometas fechas específicas ni tomes decisiones comerciales
@@ -988,7 +990,9 @@ REGLAS ABSOLUTAS:
       );
   }
 
-  const textContent = `${contextLines.join("\n")}\n\n---\nINSTRUCCIÓN DEL AGENTE:\n${userPrompt}`;
+  const textContent = `INSTRUCCION DEL AGENTE (PRIORIDAD MAXIMA):\n${cleanUserPrompt}\n\n` +
+    `REGLA DE CUMPLIMIENTO:\nDebes cumplir primero esta instruccion. El contexto siguiente solo sirve de apoyo y no puede reemplazar la instruccion.\n\n` +
+    `CONTEXTO DE APOYO DEL TICKET:\n${contextLines.join("\n")}`;
 
   // Build message content — plain text or multipart when attachment present
   let userContent;
@@ -1028,7 +1032,7 @@ REGLAS ABSOLUTAS:
         { role: "system", content: systemMsg },
         { role: "user", content: userContent },
       ],
-      temperature: 0.3,
+      temperature: 0.1,
     }),
   });
 
@@ -1051,7 +1055,65 @@ REGLAS ABSOLUTAS:
   if (!content)
     throw new Error("Respuesta vacía del modelo. Intenta nuevamente.");
 
-  return { reply: content.trim() };
+  const polishedReply = ensureCustomPromptReplyQuality(
+    content,
+    cleanUserPrompt,
+    ticketData,
+  );
+
+  return { reply: polishedReply };
+}
+
+function sanitizeAgentInstruction(userPrompt) {
+  return String(userPrompt || "")
+    .replace(/\[\s*CONTEXTO\s+PERSONALIZADO\s+PERSISTENTE\s*\]/gi, "")
+    .replace(/[\n\r]{3,}/g, "\n\n")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function ensureCustomPromptReplyQuality(rawReply, userPrompt, ticketData) {
+  const reply = String(rawReply || "").trim();
+  if (!reply) return reply;
+
+  const lines = reply
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const sentenceCount = reply
+    .split(/[\.!?]+/)
+    .map((s) => s.trim())
+    .filter(Boolean).length;
+
+  const looksTooShort = reply.length < 90 || lines.length <= 1 || sentenceCount < 2;
+  if (!looksTooShort) return reply;
+
+  const customer =
+    ticketData?.customerName && ticketData.customerName !== "No detectado"
+      ? ticketData.customerName
+      : "cliente";
+
+  const ocText = Array.isArray(ticketData?.ocNumbers) && ticketData.ocNumbers.length
+    ? ` para la${ticketData.ocNumbers.length > 1 ? "s" : ""} OC ${ticketData.ocNumbers.join(", ")}`
+    : "";
+
+  const intent = buildAgentClientContextSentence(userPrompt || "");
+  const context = intent || String(userPrompt || "").trim();
+
+  return [
+    `Estimado/a ${customer},`,
+    "",
+    context,
+    `Gracias por contactarnos. Hemos revisado su solicitud${ocText}.`,
+    "Estamos gestionando su caso con el area correspondiente y le compartiremos una actualizacion a la brevedad.",
+    "",
+    "Saludos cordiales,",
+    "Equipo EMChile",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
@@ -1071,6 +1133,7 @@ Tu función es analizar tickets y generar tres salidas estructuradas: respuesta 
 • NUNCA tomes decisiones comerciales, técnicas ni operativas
 • NUNCA inventes datos que no estén en el ticket
 • NUNCA uses tecnicismos internos en la respuesta al cliente
+• Mantén estricta separación de salidas: clientReply solo para cliente, internalMessage solo para comunicación interna
 • La respuesta al cliente SIEMPRE termina firmada como "Equipo EMChile"
 • Si el caso es ambiguo, incompleto o sensible → establece shouldReply = false
 
@@ -1272,7 +1335,115 @@ function normalizeAnalysis(ticketData, result) {
     normalized.riskAlert = null;
   }
 
+  normalized.clientReply = ensureClientReplyCompleteness(
+    normalized.clientReply,
+    ticketData,
+  );
+  normalized.clientReply = ensureAgentClientContext(
+    normalized.clientReply,
+    ticketData,
+  );
+
+  normalized.internalMessage = ensureAgentInternalContext(
+    normalized.internalMessage,
+    ticketData,
+  );
+
   return normalized;
+}
+
+function ensureClientReplyCompleteness(clientReply, ticketData) {
+  const text = String(clientReply || "").trim();
+  const normalized = normalizeForComparison(text);
+  const sentenceCount = text
+    .split(/[\.!?]+/)
+    .map((s) => s.trim())
+    .filter(Boolean).length;
+  const lineCount = text
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean).length;
+
+  const looksTooShort =
+    text.length < 80 ||
+    sentenceCount < 2 ||
+    lineCount <= 1 ||
+    /^estimad[oa]/i.test(text) ||
+    /^hola\b/i.test(text) ||
+    normalized === "";
+
+  if (!looksTooShort) return text;
+
+  const customer =
+    ticketData?.customerName && ticketData.customerName !== "No detectado"
+      ? ticketData.customerName
+      : "cliente";
+  const subject = String(ticketData?.subject || "su solicitud").trim();
+  const hasOc = Array.isArray(ticketData?.ocNumbers) && ticketData.ocNumbers.length;
+  const ocText = hasOc
+    ? ` para la${ticketData.ocNumbers.length > 1 ? "s" : ""} OC ${ticketData.ocNumbers.join(", ")}`
+    : "";
+
+  return [
+    `Estimado/a ${customer},`,
+    "",
+    `Gracias por contactarnos. Hemos recibido ${subject}${ocText}.`,
+    "Estamos gestionando su caso con el area correspondiente para entregar una actualizacion a la brevedad.",
+    "Le mantendremos informado/a sobre el avance.",
+    "",
+    "Saludos cordiales,",
+    "Equipo EMChile",
+  ].join("\n");
+}
+
+function ensureAgentClientContext(clientReply, ticketData) {
+  const clientContext = String(ticketData?.responseContext?.client || "").trim();
+  if (!clientContext) return String(clientReply || "").trim();
+
+  const reply = String(clientReply || "").trim();
+  if (!reply) return reply;
+
+  const replyNorm = normalizeForComparison(reply);
+  const ctxNorm = normalizeForComparison(clientContext);
+  const contextSentence = buildAgentClientContextSentence(clientContext);
+  const ctxSentenceNorm = normalizeForComparison(contextSentence);
+  if (
+    (ctxNorm && replyNorm.includes(ctxNorm)) ||
+    (ctxSentenceNorm && replyNorm.includes(ctxSentenceNorm))
+  ) {
+    return reply;
+  }
+
+  const lines = reply.split("\n");
+
+  // Try to place context right after greeting block for better readability.
+  let insertAt = 0;
+  while (insertAt < lines.length && !lines[insertAt].trim()) insertAt += 1;
+  if (insertAt < lines.length) insertAt += 1;
+  while (insertAt < lines.length && !lines[insertAt].trim()) insertAt += 1;
+
+  lines.splice(insertAt, 0, "", contextSentence);
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function buildAgentClientContextSentence(clientContext) {
+  let ctx = String(clientContext || "")
+    .replace(/[\n\r]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!ctx) return "";
+
+  // Keep the user's wording as the main source, with minimal tone adaptation.
+  ctx = ctx
+    .replace(/^disculpate\b[:\s-]*/i, "Nos disculpamos ")
+    .replace(/^disculparse\b[:\s-]*/i, "Nos disculpamos ")
+    .replace(/^disculpa(?:nos)?\b[:\s-]*/i, "Nos disculpamos ")
+    .replace(/\bteniamos\b/gi, "tuvimos");
+
+  if (ctx.length) {
+    ctx = ctx.charAt(0).toUpperCase() + ctx.slice(1);
+  }
+  return ctx.endsWith(".") ? ctx : `${ctx}.`;
 }
 
 function getCriticalContext(ticketData) {
@@ -1348,6 +1519,54 @@ function ensureCriticalInternalMessage(
   }
 
   return [firstLine, ...rest].join("\n");
+}
+
+function ensureAgentInternalContext(internalMessage, ticketData) {
+  const internalContext = String(ticketData?.responseContext?.internal || "").trim();
+  if (!internalContext) return internalMessage;
+
+  const lines = String(internalMessage || "")
+    .split("\n")
+    .filter(Boolean);
+  const firstLine = lines[0] || buildFallbackInternalHeader(ticketData);
+  const rest = lines.slice(1);
+  const existing = normalizeForComparison(rest.join(" "));
+  const ctxNorm = normalizeForComparison(internalContext);
+
+  if (ctxNorm && existing.includes(ctxNorm)) {
+    return [firstLine, ...rest].join("\n");
+  }
+
+  const bullet = buildAgentInternalContextBullet(internalContext);
+  // Keep this context near the top so it is visible and actionable.
+  rest.unshift(`• ${bullet}`);
+  return [firstLine, ...rest].join("\n");
+}
+
+function buildAgentInternalContextBullet(internalContext) {
+  const ctx = String(internalContext || "").trim();
+  const normalized = normalizeForComparison(ctx);
+
+  if (/pedido|orden|oc/.test(normalized) && /figura(n)? en produccion|produccion/.test(normalized)) {
+    return 'Pedido dice figurar "en Produccion en sistema".';
+  }
+
+  if (/figura(n)? en produccion|produccion/.test(normalized)) {
+    return 'Pedido figura "en Produccion en sistema".';
+  }
+
+  const clean = ctx.replace(/[\n\r]+/g, " ").replace(/\s{2,}/g, " ").trim();
+  return clean.endsWith(".") ? `Contexto agente: ${clean}` : `Contexto agente: ${clean}.`;
+}
+
+function normalizeForComparison(text) {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildFallbackInternalHeader(ticketData) {

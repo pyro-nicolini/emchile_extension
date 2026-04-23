@@ -592,6 +592,7 @@ body::after {
   flex-direction: column;
   gap: 10px;
   padding: 12px;
+  padding-bottom: 82px;
   flex: 1;
   overflow-y: auto;
 }
@@ -638,6 +639,28 @@ body::after {
   white-space: pre-wrap;
   word-break: break-word;
   min-height: 60px;
+}
+
+/* Avoid clipping long client replies against card borders */
+#panel-client > .card:first-child {
+  overflow: visible;
+}
+
+#js-client {
+  max-height: 300px;
+  overflow-y: auto;
+  padding-bottom: 20px;
+}
+
+/* Avoid clipping custom prompt response text against card borders */
+#js-cp-result-card {
+  overflow: visible;
+}
+
+#js-cp-response {
+  max-height: 300px;
+  overflow-y: auto;
+  padding-bottom: 20px;
 }
 
 /* ── BUTTONS ─────────────────────────────────────────────────────────────────── */
@@ -1078,6 +1101,50 @@ body::after {
   transform: translateX(-50%) translateY(0);
 }
 
+/* ── ANALYSIS CONTEXT INPUTS ───────────────────────────────────────────────── */
+.analysis-context-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+
+.analysis-context-box {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.analysis-context-label {
+  font-size: 9px;
+  color: var(--t3);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.analysis-context-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--bg4);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--t1);
+  font-family: var(--mono);
+  font-size: 10px;
+  transition: border-color var(--tr);
+}
+
+.analysis-context-input:focus {
+  outline: none;
+  border-color: var(--border-a);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.15);
+}
+
+.analysis-context-input::placeholder {
+  color: var(--t3);
+}
+
 /* ── CUSTOM PROMPT SECTION ───────────────────────────────────────────────────── */
 .cp-card {
   border-color: rgba(168, 85, 247, 0.2);
@@ -1098,7 +1165,64 @@ body::after {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 12px 14px 18px;
+  overflow: visible;
+}
+
+.cp-persistent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px;
+  border-radius: var(--r);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  background: rgba(168, 85, 247, 0.04);
+}
+
+.cp-sub-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  color: var(--purple);
+  text-transform: uppercase;
+}
+
+.cp-context-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--bg4);
+  border: 1px solid rgba(168, 85, 247, 0.24);
+  border-radius: var(--r);
+  color: var(--t1);
+  font-family: var(--mono);
+  font-size: 10px;
+  transition: border-color var(--tr);
+}
+
+.cp-context-input:focus {
+  outline: none;
+  border-color: var(--purple);
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.18);
+}
+
+.cp-context-input::placeholder {
+  color: var(--t3);
+}
+
+.cp-context-hint {
+  display: block;
+  font-size: 9px;
+  color: var(--t3);
+}
+
+.cp-card,
+.anti-card {
+  overflow: visible;
+}
+
+.anti-card .cp-body {
+  padding-bottom: 20px;
 }
 
 .cp-textarea {
@@ -1149,7 +1273,7 @@ body::after {
   text-transform: uppercase;
   cursor: pointer;
   transition: var(--tr);
-  align-self: flex-end;
+  align-self: stretch;
 }
 .btn-cp-run:hover:not(:disabled) {
   background: rgba(168, 85, 247, 0.18);

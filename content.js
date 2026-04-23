@@ -133,12 +133,21 @@
   }
 
   // ─── ANALYSIS FLOW ─────────────────────────────────────────────────────────
-  async function triggerAnalysis() {
+  async function triggerAnalysis(responseContext = null) {
     isAnalyzing = true;
     floatingBtn.classList.add("fab-analyzing");
     postToSidebar({ type: "LOADING_START" });
     try {
-      const ticketData = extractTicketData();
+      const persistedContext = await getPersistedResponseContext();
+      const mergedContext = {
+        client: String(
+          responseContext?.client || persistedContext?.client || "",
+        ).trim(),
+        internal: String(
+          responseContext?.internal || persistedContext?.internal || "",
+        ).trim(),
+      };
+      const ticketData = extractTicketData(mergedContext);
       const result = await bgMessage({
         type: "ANALYZE_TICKET",
         data: ticketData,
@@ -150,6 +159,24 @@
       isAnalyzing = false;
       floatingBtn.classList.remove("fab-analyzing");
     }
+  }
+
+  function getPersistedResponseContext() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(
+        ["analysisClientContext", "analysisInternalContext"],
+        (stored) => {
+          if (chrome.runtime.lastError) {
+            resolve({ client: "", internal: "" });
+            return;
+          }
+          resolve({
+            client: String(stored.analysisClientContext || "").trim(),
+            internal: String(stored.analysisInternalContext || "").trim(),
+          });
+        },
+      );
+    });
   }
 
   function bgMessage(msg) {
@@ -167,7 +194,7 @@
   }
 
   // ─── DOM EXTRACTION ────────────────────────────────────────────────────────
-  function extractTicketData() {
+  function extractTicketData(responseContext = null) {
     const subject = extractSubject();
     const conversation = extractConversation();
     const additionalData = extractCustomFields();
@@ -188,6 +215,10 @@
         subject,
       ),
       additionalData,
+      responseContext: {
+        client: String(responseContext?.client || "").trim(),
+        internal: String(responseContext?.internal || "").trim(),
+      },
       url: window.location.href,
       extractedAt: new Date().toISOString(),
     };
@@ -271,11 +302,11 @@
     const suffixPattern =
       "(?:AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)";
     const strictOcRegex = new RegExp(
-      `\\b(\\d{3,8}-+\\d{2,6}-+${suffixPattern})\\b`,
+      `\\b(\\d{3,8}-+\\d{1,6}-+${suffixPattern})\\b`,
       "gi",
     );
     const labeledOcRegex = new RegExp(
-      `\\bOC[:\\s#-]*(\\d{3,8}-+\\d{2,6}-+${suffixPattern})\\b`,
+      `\\bOC[:\\s#-]*(\\d{3,8}-+\\d{1,6}-+${suffixPattern})\\b`,
       "gi",
     );
 
@@ -299,7 +330,7 @@
       .replace(/[–]/g, "-")
       .replace(/-{2,}/g, "-")
       .replace(
-        /(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)(?=\d{3,8}-+\d{2,6}-+)/gi,
+        /(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)(?=\d{3,8}-+\d{1,6}-+)/gi,
         "$1\n",
       );
   }
@@ -313,7 +344,7 @@
       .toUpperCase();
 
     if (
-      !/^\d{3,8}-\d{2,6}-(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)$/.test(
+      !/^\d{3,8}-\d{1,6}-(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)$/.test(
         normalized,
       )
     ) {
@@ -743,7 +774,7 @@
         checkTicketChange();
         break;
       case "RE_ANALYZE":
-        if (!isAnalyzing) triggerAnalysis();
+        if (!isAnalyzing) triggerAnalysis(data?.responseContext || null);
         break;
       case "CLOSE_SIDEBAR":
         closeSidebar();

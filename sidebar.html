@@ -101,6 +101,31 @@
           <div class="oc-list" id="js-oclist"></div>
         </div>
 
+        <div class="analysis-context-row">
+          <div class="analysis-context-box">
+            <label class="analysis-context-label" for="js-client-context"
+              >contexto</label
+            >
+            <input
+              id="js-client-context"
+              class="analysis-context-input"
+              type="text"
+              placeholder="contexto respuestas"
+            />
+          </div>
+          <div class="analysis-context-box">
+            <label class="analysis-context-label" for="js-internal-context"
+              >contexto</label
+            >
+            <input
+              id="js-internal-context"
+              class="analysis-context-input"
+              type="text"
+              placeholder="contexto interno"
+            />
+          </div>
+        </div>
+
         <!-- Tabs -->
         <div class="tabs">
           <button class="tab active" data-tab="client">📨 Cliente</button>
@@ -131,6 +156,21 @@
               <span class="clabel">✦ Prompt personalizado</span>
             </div>
             <div class="cp-body">
+              <div class="cp-persistent">
+                <label for="js-cp-context" class="cp-sub-label"
+                  >Contexto personalizado</label
+                >
+                <input
+                  id="js-cp-context"
+                  class="cp-context-input"
+                  type="text"
+                  placeholder="Ej: Mantén tono cercano, disculpa demoras por falta de acceso al correo, evita prometer fechas exactas…"
+                />
+                <span class="cp-context-hint"
+                  >Se guarda automáticamente y no se borra con F5</span
+                >
+              </div>
+
               <textarea
                 id="js-cp-input"
                 class="cp-textarea"

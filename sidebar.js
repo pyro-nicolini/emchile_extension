@@ -12,6 +12,8 @@
   let activeView = "idle";
   let el = {}; // populated in init() once DOM is ready
   let cpAttachment = null; // { type: 'image'|'pdf', base64, mimeType, name }
+  let cpContextSaveTimer = null;
+  let analysisContextSaveTimer = null;
 
   // ─── INIT ──────────────────────────────────────────────────────────────────
   function init() {
@@ -40,6 +42,8 @@
       ocList: $("js-oclist"),
       btnCopyOcs: $("js-copy-ocs"),
       btnAutoFill: $("js-autofill"),
+      clientContextInput: $("js-client-context"),
+      internalContextInput: $("js-internal-context"),
       clientText: $("js-client"),
       internalText: $("js-internal"),
       summaryText: $("js-summary"),
@@ -60,6 +64,7 @@
       btnBackCfg: $("js-back-cfg"),
       toast: $("js-toast"),
       cpInput: $("js-cp-input"),
+      cpContextInput: $("js-cp-context"),
       btnCpRun: $("js-cp-run"),
       cpResultCard: $("js-cp-result-card"),
       cpResponse: $("js-cp-response"),
@@ -79,6 +84,8 @@
     }
 
     bindUI();
+    loadCustomPromptContext();
+    loadAnalysisContexts();
     showView("idle");
     notifyContent({ type: "SIDEBAR_READY" });
   }
@@ -109,7 +116,7 @@
 
     // Error
     el.btnRetry.addEventListener("click", () =>
-      notifyContent({ type: "RE_ANALYZE" }),
+      notifyContent({ type: "RE_ANALYZE", data: { responseContext: getAnalysisContexts() } }),
     );
     el.btnGotoCfg.addEventListener("click", () => {
       previousView = "error";
@@ -119,7 +126,7 @@
 
     // Results — Re-analyze
     el.btnReanalyze.addEventListener("click", () =>
-      notifyContent({ type: "RE_ANALYZE" }),
+      notifyContent({ type: "RE_ANALYZE", data: { responseContext: getAnalysisContexts() } }),
     );
 
     // Results — Insert in Zoho
@@ -148,6 +155,12 @@
 
     if (el.btnAutoFill) {
       el.btnAutoFill.addEventListener("click", runAutoFill);
+    }
+    if (el.clientContextInput) {
+      el.clientContextInput.addEventListener("input", scheduleSaveAnalysisContexts);
+    }
+    if (el.internalContextInput) {
+      el.internalContextInput.addEventListener("input", scheduleSaveAnalysisContexts);
     }
 
     // History
@@ -194,6 +207,9 @@
     el.cpFile.addEventListener("change", handleCpFileSelect);
     el.btnCpRemove.addEventListener("click", clearCpAttachment);
     el.cpInput.addEventListener("paste", handleCpPaste);
+    if (el.cpContextInput) {
+      el.cpContextInput.addEventListener("input", scheduleSaveCustomPromptContext);
+    }
 
     // Messages from content.js
     window.addEventListener("message", onContentMessage);
@@ -412,6 +428,66 @@
   }
 
   // ─── CUSTOM PROMPT ─────────────────────────────────────────────────────────
+  function loadAnalysisContexts() {
+    chrome.storage.local.get(
+      ["analysisClientContext", "analysisInternalContext"],
+      (result) => {
+        if (chrome.runtime.lastError) return;
+        if (el.clientContextInput) {
+          el.clientContextInput.value = String(result.analysisClientContext || "");
+        }
+        if (el.internalContextInput) {
+          el.internalContextInput.value = String(result.analysisInternalContext || "");
+        }
+      },
+    );
+  }
+
+  function scheduleSaveAnalysisContexts() {
+    clearTimeout(analysisContextSaveTimer);
+    analysisContextSaveTimer = setTimeout(() => {
+      chrome.storage.local.set({
+        analysisClientContext: el.clientContextInput?.value?.trim() || "",
+        analysisInternalContext: el.internalContextInput?.value?.trim() || "",
+      });
+    }, 250);
+  }
+
+  function getAnalysisContexts() {
+    return {
+      client: el.clientContextInput?.value?.trim() || "",
+      internal: el.internalContextInput?.value?.trim() || "",
+    };
+  }
+
+  function loadCustomPromptContext() {
+    chrome.storage.local.get(["customPromptContext"], (result) => {
+      if (chrome.runtime.lastError) return;
+      if (el.cpContextInput) {
+        el.cpContextInput.value = String(result.customPromptContext || "");
+      }
+    });
+  }
+
+  function scheduleSaveCustomPromptContext() {
+    clearTimeout(cpContextSaveTimer);
+    cpContextSaveTimer = setTimeout(() => {
+      const customPromptContext = el.cpContextInput?.value?.trim() || "";
+      chrome.storage.local.set({ customPromptContext });
+    }, 250);
+  }
+
+  function getCustomPromptContext() {
+    return el.cpContextInput?.value?.trim() || "";
+  }
+
+  function buildPromptWithPersistentContext(userPrompt) {
+    const prompt = String(userPrompt || "").trim();
+    const ctx = getCustomPromptContext();
+    if (!ctx) return prompt;
+    return `${prompt}\n\n${ctx}`;
+  }
+
   function runCustomPrompt() {
     const userPrompt = el.cpInput.value.trim();
     if (!userPrompt) {
@@ -434,7 +510,7 @@
         data: {
           ticketData: currentTicket,
           currentResult,
-          userPrompt,
+          userPrompt: buildPromptWithPersistentContext(userPrompt),
           attachment: cpAttachment,
         },
       },
@@ -489,7 +565,7 @@
         data: {
           ticketData: currentTicket,
           currentResult,
-          userPrompt: ANTI_SAMPLE_PROMPT,
+          userPrompt: buildPromptWithPersistentContext(ANTI_SAMPLE_PROMPT),
           attachment: null,
         },
       },

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "EMChile AI Desk",
+  "name": "EMChile AI Desk - By PyrO_Dev",
   "version": "1.0.0",
-  "description": "Asistente IA de postventa para Zoho Desk — EMChile",
+  "description": "Asistente IA de postventa para Zoho Desk — EMChile - By PyrO_Dev",
   "permissions": ["storage", "clipboardWrite", "clipboardRead", "scripting"],
   "host_permissions": [
     "https://*.zoho.com/*",
