@@ -944,6 +944,7 @@ async function customPromptAnalyze({
   ticketData,
   currentResult,
   userPrompt,
+  persistentContext,
   attachment,
 }) {
   const settings = await getSettings();
@@ -957,6 +958,7 @@ async function customPromptAnalyze({
   // Force gpt-4o when an image/PDF is attached — vision is required
   const model = attachment ? "gpt-4o" : settings.model || "gpt-4o-mini";
   const cleanUserPrompt = sanitizeAgentInstruction(userPrompt);
+  const cleanPersistentContext = sanitizeAgentInstruction(persistentContext);
 
   const systemMsg = `Eres un asistente de soporte especializado para el equipo de postventa de EMChile. \
 Se te proporcionará el contexto completo de un ticket de Zoho Desk (conversación, datos del cliente, órdenes de compra, etc.) \
@@ -991,6 +993,7 @@ REGLAS ABSOLUTAS:
   }
 
   const textContent = `INSTRUCCION DEL AGENTE (PRIORIDAD MAXIMA):\n${cleanUserPrompt}\n\n` +
+    `${cleanPersistentContext ? `CONTEXTO PERSISTENTE DEL AGENTE (COMPLEMENTARIO):\n${cleanPersistentContext}\n\n` : ""}` +
     `REGLA DE CUMPLIMIENTO:\nDebes cumplir primero esta instruccion. El contexto siguiente solo sirve de apoyo y no puede reemplazar la instruccion.\n\n` +
     `CONTEXTO DE APOYO DEL TICKET:\n${contextLines.join("\n")}`;
 
@@ -1055,9 +1058,11 @@ REGLAS ABSOLUTAS:
   if (!content)
     throw new Error("Respuesta vacía del modelo. Intenta nuevamente.");
 
+  const cleanedReply = sanitizeCustomPromptReplyOutput(content);
   const polishedReply = ensureCustomPromptReplyQuality(
-    content,
+    cleanedReply,
     cleanUserPrompt,
+    cleanPersistentContext,
     ticketData,
   );
 
@@ -1072,7 +1077,20 @@ function sanitizeAgentInstruction(userPrompt) {
     .trim();
 }
 
-function ensureCustomPromptReplyQuality(rawReply, userPrompt, ticketData) {
+function sanitizeCustomPromptReplyOutput(rawReply) {
+  return String(rawReply || "")
+    .replace(/\[\s*CONTEXTO\s+PERSONALIZADO\s+PERSISTENTE\s*\]/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function ensureCustomPromptReplyQuality(
+  rawReply,
+  userPrompt,
+  persistentContext,
+  ticketData,
+) {
   const reply = String(rawReply || "").trim();
   if (!reply) return reply;
 
@@ -1099,11 +1117,13 @@ function ensureCustomPromptReplyQuality(rawReply, userPrompt, ticketData) {
 
   const intent = buildAgentClientContextSentence(userPrompt || "");
   const context = intent || String(userPrompt || "").trim();
+  const persistent = buildAgentClientContextSentence(persistentContext || "");
 
   return [
     `Estimado/a ${customer},`,
     "",
     context,
+    persistent,
     `Gracias por contactarnos. Hemos revisado su solicitud${ocText}.`,
     "Estamos gestionando su caso con el area correspondiente y le compartiremos una actualizacion a la brevedad.",
     "",
@@ -1164,7 +1184,7 @@ Tu función es analizar tickets y generar tres salidas estructuradas: respuesta 
 ══════════════════════════════════════════
 • Primera línea OBLIGATORIA: #[ID_TICKET] – ID OC [número si existe / "sin OC" si no]
 • Si hay más de una OC detectada, incluye TODAS las OCs exactas en esa primera línea separadas por comas
-• Una OC válida en EMChile termina en uno de estos sufijos: AG25, AG26, COT25, LE, LP, SE, LE25, LP25, SE25, LE26, LP26, SE26
+• Una OC válida en EMChile termina en uno de estos sufijos: AG25, AG26, COT25, LE, LP, SE, LE25, LP25, SE25, LE26, LP26, SE26, LR25, LR26
 • Lista concisa: qué solicita el cliente y qué información falta para resolver
 • NO dar instrucciones al equipo, NO tomar decisiones, NO repetir lo obvio
 • Lenguaje técnico interno permitido
@@ -1232,7 +1252,7 @@ function buildUserPrompt(ticketData) {
       "IMPORTANTE: Usa estos números exactos en la comunicación interna y no los reemplaces por 'sin OC'.",
     );
     lines.push(
-      "IMPORTANTE: Solo consideres como OC válidas las que terminan en AG25, AG26, COT25, COT26, LE, LP, SE, LE25, LP25, SE25, LE26, LP26 o SE26.",
+      "IMPORTANTE: Solo consideres como OC válidas las que terminan en AG25, AG26, COT25, COT26, LE, LP, SE, LE25, LP25, SE25, LE26, LP26, SE26, LR25 o LR26.",
     );
     if (ticketData.ocNumbers.length > 1) {
       lines.push(
@@ -1525,6 +1545,11 @@ function ensureAgentInternalContext(internalMessage, ticketData) {
   const internalContext = String(ticketData?.responseContext?.internal || "").trim();
   if (!internalContext) return internalMessage;
 
+  const normalizedContext = normalizeForComparison(internalContext);
+  if (isInternalDataExtractionIntent(normalizedContext)) {
+    return buildInternalDataExtractionMessage(ticketData, internalMessage);
+  }
+
   const lines = String(internalMessage || "")
     .split("\n")
     .filter(Boolean);
@@ -1557,6 +1582,107 @@ function buildAgentInternalContextBullet(internalContext) {
 
   const clean = ctx.replace(/[\n\r]+/g, " ").replace(/\s{2,}/g, " ").trim();
   return clean.endsWith(".") ? `Contexto agente: ${clean}` : `Contexto agente: ${clean}.`;
+}
+
+function isInternalDataExtractionIntent(normalizedContext) {
+  return /dame|extrae|listar|lista|muestra|indica/.test(normalizedContext) &&
+    /(datos|info|informacion|senal|senala|cliente)/.test(normalizedContext);
+}
+
+function buildInternalDataExtractionMessage(ticketData, internalMessage) {
+  const lines = String(internalMessage || "")
+    .split("\n")
+    .filter(Boolean);
+  const header = lines[0] || buildFallbackInternalHeader(ticketData);
+  const textPool = [
+    ticketData?.subject || "",
+    ticketData?.conversation || "",
+    ticketData?.additionalData || "",
+  ].join("\n");
+
+  const extracted = extractInternalOperationalData(textPool);
+  const bullets = [];
+
+  if (extracted.address) {
+    bullets.push(`• Direccion de retiro reportada: ${extracted.address}`);
+  }
+  if (extracted.schedule) {
+    bullets.push(`• Horario reportado: ${extracted.schedule}`);
+  }
+  if (extracted.responsible) {
+    bullets.push(`• Responsable reportado: ${extracted.responsible}`);
+  }
+  if (extracted.availability) {
+    bullets.push(`• Estado de disponibilidad: ${extracted.availability}`);
+  }
+  if (extracted.extra.length) {
+    extracted.extra.forEach((item) => bullets.push(`• ${item}`));
+  }
+
+  if (!bullets.length) {
+    bullets.push("• No se identifican datos operativos explicitos del cliente en el ticket.");
+  }
+
+  return [header, ...bullets].join("\n");
+}
+
+function extractInternalOperationalData(text) {
+  const source = String(text || "");
+  const normalizedLines = source
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const valueAfterLine = (lineRegex) => {
+    for (let i = 0; i < normalizedLines.length; i += 1) {
+      if (!lineRegex.test(normalizedLines[i])) continue;
+      for (let j = i + 1; j < Math.min(i + 4, normalizedLines.length); j += 1) {
+        const candidate = normalizedLines[j];
+        if (!candidate || lineRegex.test(candidate)) continue;
+        if (candidate.length < 3) continue;
+        return sanitizeInternalDataValue(candidate);
+      }
+    }
+    return "";
+  };
+
+  const valueInSameLine = (regex) => {
+    const hit = source.match(regex);
+    return sanitizeInternalDataValue(hit?.[1] || "");
+  };
+
+  const address =
+    valueInSameLine(/direcci[oó]n(?: exacta)?[^:\n]*[:\-]\s*([^\n\r]+)/i) ||
+    valueAfterLine(/direcci[oó]n(?: exacta)?/i);
+
+  const schedule =
+    valueInSameLine(/horario[^:\n]*[:\-]\s*([^\n\r]+)/i) ||
+    valueAfterLine(/horario/i);
+
+  const responsible =
+    valueInSameLine(/nombre de la persona responsable[^:\n]*[:\-]\s*([^\n\r]+)/i) ||
+    valueAfterLine(/nombre de la persona responsable/i);
+
+  const availability =
+    valueInSameLine(/confirmaci[oó]n[^:\n]*[:\-]\s*([^\n\r]+)/i) ||
+    valueAfterLine(/confirmaci[oó]n.*(disponible|retiro)/i);
+
+  const extra = [];
+  const directAttendance = source.match(/presentarse directamente[^\n\r]*/i)?.[0];
+  if (directAttendance) {
+    extra.push(sanitizeInternalDataValue(directAttendance));
+  }
+
+  return { address, schedule, responsible, availability, extra };
+}
+
+function sanitizeInternalDataValue(value) {
+  const clean = String(value || "")
+    .replace(/[\t ]{2,}/g, " ")
+    .replace(/^[•\-:\s]+/, "")
+    .trim();
+  if (!clean) return "";
+  return clean.endsWith(".") ? clean : `${clean}.`;
 }
 
 function normalizeForComparison(text) {

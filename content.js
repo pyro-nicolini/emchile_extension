@@ -300,7 +300,7 @@
       sources.filter(Boolean).join("\n") || document.body.innerText || "";
     const preparedText = prepareOCExtractionText(rawText);
     const suffixPattern =
-      "(?:AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)";
+      "(?:AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?|LR(?:25|26)?)";
     const strictOcRegex = new RegExp(
       `\\b(\\d{3,8}-+\\d{1,6}-+${suffixPattern})\\b`,
       "gi",
@@ -330,7 +330,7 @@
       .replace(/[–]/g, "-")
       .replace(/-{2,}/g, "-")
       .replace(
-        /(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)(?=\d{3,8}-+\d{1,6}-+)/gi,
+        /(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?|LR(?:25|26)?)(?=\d{3,8}-+\d{1,6}-+)/gi,
         "$1\n",
       );
   }
@@ -344,7 +344,7 @@
       .toUpperCase();
 
     if (
-      !/^\d{3,8}-\d{1,6}-(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?)$/.test(
+      !/^\d{3,8}-\d{1,6}-(AG25|AG26|COT(?:25|26)|LE(?:25|26)?|LP(?:25|26)?|SE(?:25|26)?|LR(?:25|26)?)$/.test(
         normalized,
       )
     ) {

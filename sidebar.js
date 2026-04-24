@@ -481,13 +481,6 @@
     return el.cpContextInput?.value?.trim() || "";
   }
 
-  function buildPromptWithPersistentContext(userPrompt) {
-    const prompt = String(userPrompt || "").trim();
-    const ctx = getCustomPromptContext();
-    if (!ctx) return prompt;
-    return `${prompt}\n\n${ctx}`;
-  }
-
   function runCustomPrompt() {
     const userPrompt = el.cpInput.value.trim();
     if (!userPrompt) {
@@ -510,7 +503,8 @@
         data: {
           ticketData: currentTicket,
           currentResult,
-          userPrompt: buildPromptWithPersistentContext(userPrompt),
+          userPrompt,
+          persistentContext: getCustomPromptContext(),
           attachment: cpAttachment,
         },
       },
@@ -565,7 +559,8 @@
         data: {
           ticketData: currentTicket,
           currentResult,
-          userPrompt: buildPromptWithPersistentContext(ANTI_SAMPLE_PROMPT),
+          userPrompt: ANTI_SAMPLE_PROMPT,
+          persistentContext: getCustomPromptContext(),
           attachment: null,
         },
       },
