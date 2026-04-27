@@ -968,6 +968,9 @@ REGLAS ABSOLUTAS:
 • La INSTRUCCIÓN DEL AGENTE tiene prioridad absoluta sobre cualquier respuesta estándar previa
 • Genera exactamente lo que el agente necesita según su instrucción, sin desviarte a plantillas por defecto
 • Usa el contexto del ticket solo como apoyo para completar la instrucción del agente
+• Antes de redactar, razona internamente el objetivo, riesgos y tono; NO muestres ese razonamiento
+• No copies ni pegues frases literales del ticket, del contexto persistente o de la respuesta estándar previa
+• Reescribe con lenguaje natural y propio; evita repetir bloques textuales del input
 • Si te piden redactar un mensaje al cliente, sé empático, claro y firma como "Equipo EMChile"
 • NUNCA inventes información que no esté en el contexto o en el documento adjunto
 • NUNCA prometas fechas específicas ni tomes decisiones comerciales
@@ -1066,7 +1069,17 @@ REGLAS ABSOLUTAS:
     ticketData,
   );
 
-  return { reply: polishedReply };
+  const finalReply = await rewriteCustomPromptReplyIfNeeded({
+    reply: polishedReply,
+    userPrompt: cleanUserPrompt,
+    persistentContext: cleanPersistentContext,
+    ticketData,
+    currentResult,
+    settings,
+    model,
+  });
+
+  return { reply: finalReply };
 }
 
 function sanitizeAgentInstruction(userPrompt) {
@@ -1133,6 +1146,124 @@ function ensureCustomPromptReplyQuality(
     .filter(Boolean)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function rewriteCustomPromptReplyIfNeeded({
+  reply,
+  userPrompt,
+  persistentContext,
+  ticketData,
+  currentResult,
+  settings,
+  model,
+}) {
+  const currentReply = String(reply || "").trim();
+  if (!currentReply) return currentReply;
+
+  const sourceTexts = [
+    String(userPrompt || ""),
+    String(persistentContext || ""),
+    String(ticketData?.conversation || ""),
+    String(currentResult?.clientReply || ""),
+    String(currentResult?.summary || ""),
+  ].filter(Boolean);
+
+  const needsRewrite =
+    looksLikePromptEcho(currentReply) ||
+    hasHighVerbatimOverlap(currentReply, sourceTexts);
+
+  if (!needsRewrite) return currentReply;
+
+  const rewriteSystem = `Eres editor senior de postventa EMChile. Reescribe respuestas para que queden naturales, humanas y profesionales.
+REGLAS:
+• Mantén el mismo objetivo y datos clave
+• No copies frases literales del texto fuente
+• Evita muletillas y repeticiones
+• Si es respuesta al cliente, mantén tono cordial y firma "Equipo EMChile"
+• Entrega solo el texto final`;
+
+  const rewriteUser = [
+    "OBJETIVO DEL AGENTE:",
+    userPrompt || "(sin objetivo explícito)",
+    "",
+    persistentContext ? "CONTEXTO PERSISTENTE:\n" + persistentContext + "\n" : "",
+    "BORRADOR A REESCRIBIR:",
+    currentReply,
+    "",
+    "Instrucción final: reescribe completamente con redacción propia, sin copiar frases exactas del borrador ni del contexto.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const rewriteResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${settings.apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: rewriteSystem },
+        { role: "user", content: rewriteUser },
+      ],
+      temperature: 0.35,
+    }),
+  });
+
+  if (!rewriteResponse.ok) return currentReply;
+
+  const rewriteData = await rewriteResponse.json();
+  const rewritten = sanitizeCustomPromptReplyOutput(
+    rewriteData?.choices?.[0]?.message?.content || "",
+  );
+
+  return rewritten || currentReply;
+}
+
+function looksLikePromptEcho(text) {
+  const normalized = normalizeForComparison(text);
+  return (
+    normalized.includes("instruccion del agente") ||
+    normalized.includes("contexto de apoyo del ticket") ||
+    normalized.includes("regla de cumplimiento")
+  );
+}
+
+function hasHighVerbatimOverlap(reply, sources) {
+  const out = normalizeLoose(reply);
+  if (!out) return false;
+
+  for (const src of sources) {
+    const srcSentences = splitSentences(src);
+    for (const sentence of srcSentences) {
+      const normSentence = normalizeLoose(sentence);
+      if (!normSentence) continue;
+      // Long copied chunks are a strong signal of copy/paste behavior.
+      if (normSentence.length >= 70 && out.includes(normSentence)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function splitSentences(text) {
+  return String(text || "")
+    .split(/[\n\.!?;:]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function normalizeLoose(text) {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
