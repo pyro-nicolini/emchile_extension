@@ -5,6 +5,38 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 (function () {
+  // ─── Provider configuration ─────────────────────────────────────────────────
+  var PROVIDER_MODELS = {
+    openai: [
+      { value: "gpt-4o-mini",  label: "GPT-4o Mini · Rápido" },
+      { value: "gpt-4o",       label: "GPT-4o · Preciso" },
+      { value: "gpt-4-turbo",  label: "GPT-4 Turbo · Avanzado" },
+    ],
+    github_copilot: [
+      { value: "gpt-4o-mini",       label: "GPT-4o Mini · Rápido" },
+      { value: "gpt-4o",            label: "GPT-4o · Balanceado" },
+      { value: "claude-3.5-sonnet", label: "Claude 3.5 Sonnet · Avanzado" },
+      { value: "o1-mini",           label: "o1-mini · Razonamiento" },
+      { value: "o3-mini",           label: "o3-mini · Razonamiento avanzado" },
+    ],
+    claude: [
+      { value: "claude-3-5-haiku-20241022",  label: "Claude 3.5 Haiku · Rápido" },
+      { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet · Balanceado" },
+      { value: "claude-3-opus-20240229",     label: "Claude 3 Opus · Avanzado" },
+    ],
+  };
+
+  var PROVIDER_UI = {
+    openai:         { label: "OpenAI API Key",  placeholder: "sk-…" },
+    github_copilot: { label: "GitHub Token (models:read)", placeholder: "ghp_…" },
+    claude:         { label: "Claude API Key",   placeholder: "sk-ant-…" },
+  };
+
+  var PROVIDER_STORAGE_KEY = {
+    openai:         "apiKeyOpenAI",
+    github_copilot: "apiKeyGitHubCopilot",
+    claude:         "apiKeyClaude",
+  };
   // ─── State ─────────────────────────────────────────────────────────────────
   let currentResult = null;
   let currentTicket = null;
@@ -55,7 +87,9 @@
       histList: $("js-hist"),
       btnClearHist: $("js-clear-hist"),
       apiKeyInput: $("js-apikey"),
+      apikeyLabel: $("js-apikey-label"),
       eyeBtn: $("js-eye"),
+      providerSelect: $("js-provider"),
       modelSelect: $("js-model"),
       useCustom: $("js-use-custom"),
       customWrap: $("js-custom-wrap"),
@@ -182,6 +216,19 @@
         saveSettings();
       }
     });
+
+    // Provider change
+    if (el.providerSelect) {
+      el.providerSelect.addEventListener("change", () => {
+        applyProviderUI(el.providerSelect.value, null);
+        const storageKey = PROVIDER_STORAGE_KEY[el.providerSelect.value];
+        chrome.storage.local.get([storageKey, "apiKey"], (stored) => {
+          el.apiKeyInput.value = stored[storageKey] || "";
+          el.apiKeyInput.type = "password";
+        });
+      });
+    }
+
     el.useCustom.addEventListener("change", () => {
       el.customWrap.classList.toggle("hidden", !el.useCustom.checked);
     });
@@ -831,14 +878,39 @@
   }
 
   // ─── SETTINGS ──────────────────────────────────────────────────────────────
+  function applyProviderUI(provider, savedModel) {
+    var ui = PROVIDER_UI[provider] || PROVIDER_UI.openai;
+    if (el.apikeyLabel) el.apikeyLabel.textContent = ui.label;
+    if (el.apiKeyInput) el.apiKeyInput.placeholder = ui.placeholder;
+
+    var models = PROVIDER_MODELS[provider] || PROVIDER_MODELS.openai;
+    if (el.modelSelect) {
+      el.modelSelect.innerHTML = models
+        .map((m) => `<option value="${m.value}">${m.label}</option>`)
+        .join("");
+      if (savedModel) el.modelSelect.value = savedModel;
+      if (!el.modelSelect.value) el.modelSelect.value = models[0].value;
+    }
+  }
+
   function loadSettings() {
-    chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings = {}) => {
+    chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
+      settings = settings || {};
       if (chrome.runtime.lastError) {
         showToast("✗ Error cargando configuración");
         return;
       }
-      if (settings.apiKey) el.apiKeyInput.value = settings.apiKey;
-      if (settings.model) el.modelSelect.value = settings.model;
+
+      var provider = settings.aiProvider || "openai";
+      if (el.providerSelect) el.providerSelect.value = provider;
+
+      // Load provider-specific key (fall back to legacy apiKey)
+      var storageKey = PROVIDER_STORAGE_KEY[provider] || "apiKey";
+      var key = settings[storageKey] || settings.apiKey || "";
+      if (key) el.apiKeyInput.value = key;
+
+      applyProviderUI(provider, settings.model);
+
       if (settings.customPrompt) el.customPrompt.value = settings.customPrompt;
       el.useCustom.checked = !!settings.useCustomPrompt;
       el.customWrap.classList.toggle("hidden", !settings.useCustomPrompt);
@@ -846,27 +918,40 @@
   }
 
   function saveSettings() {
-    const data = {
-      apiKey: el.apiKeyInput.value.trim(),
-      model: el.modelSelect.value,
-      customPrompt: el.customPrompt.value.trim(),
-      useCustomPrompt: el.useCustom.checked,
-    };
-    if (!data.apiKey) {
-      showToast("⚠ Ingresa tu API Key de OpenAI");
+    var provider = el.providerSelect ? el.providerSelect.value : "openai";
+    var key = el.apiKeyInput.value.trim();
+
+    if (!key) {
+      showToast("⚠ Ingresa tu API Key");
       return;
     }
+    if (provider === "openai" && !key.startsWith("sk-")) {
+      showToast('⚠ La API Key de OpenAI debe comenzar con "sk-"');
+      return;
+    }
+    if (provider === "claude" && !key.startsWith("sk-ant-")) {
+      showToast('⚠ La API Key de Claude debe comenzar con "sk-ant-"');
+      return;
+    }
+
+    var providerStorageKey = PROVIDER_STORAGE_KEY[provider];
+    var data = {
+      aiProvider:      provider,
+      apiKey:          key,
+      model:           el.modelSelect.value,
+      customPrompt:    el.customPrompt.value.trim(),
+      useCustomPrompt: el.useCustom.checked,
+    };
+    data[providerStorageKey] = key;
+
     chrome.runtime.sendMessage({ type: "SAVE_SETTINGS", data }, (response) => {
       if (chrome.runtime.lastError) {
         showToast("✗ Error al guardar configuración");
         return;
       }
-      if (!response?.success) {
+      if (!response || !response.success) {
         showToast(`✗ ${response?.error || "No se pudo guardar"}`);
         return;
-      }
-      if (response.saved?.apiKey) {
-        el.apiKeyInput.value = response.saved.apiKey;
       }
       showToast("✓ Configuración guardada");
       setTimeout(() => showView(previousView || "idle"), 800);

@@ -7,7 +7,9 @@
   "host_permissions": [
     "https://*.zoho.com/*",
     "https://*.zohodesk.com/*",
-    "https://api.openai.com/*"
+    "https://api.openai.com/*",
+    "https://models.inference.ai.azure.com/*",
+    "https://api.anthropic.com/*"
   ],
   "background": {
     "service_worker": "background.js"

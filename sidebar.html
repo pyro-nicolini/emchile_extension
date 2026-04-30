@@ -296,7 +296,14 @@
         <div class="cfg-form">
           <p class="cfg-title">⚙ Configuración rápida</p>
 
-          <label class="cfg-label">OpenAI API Key</label>
+          <label class="cfg-label">Proveedor de IA</label>
+          <select id="js-provider" class="cfg-select">
+            <option value="openai">OpenAI (GPT)</option>
+            <option value="github_copilot">GitHub Copilot</option>
+            <option value="claude">Claude (Anthropic)</option>
+          </select>
+
+          <label class="cfg-label" id="js-apikey-label">OpenAI API Key</label>
           <div class="cfg-row">
             <input
               type="password"

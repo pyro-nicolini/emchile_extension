@@ -19,9 +19,19 @@
         </div>
       </div>
 
+      <!-- AI Provider -->
+      <div class="p-section">
+        <label class="p-label" for="p-provider">Proveedor de IA</label>
+        <select id="p-provider" class="p-select">
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="github_copilot">GitHub Copilot</option>
+          <option value="claude">Claude (Anthropic)</option>
+        </select>
+      </div>
+
       <!-- API Key -->
       <div class="p-section">
-        <label class="p-label" for="p-apikey">OpenAI API Key</label>
+        <label class="p-label" for="p-apikey" id="p-apikey-label">OpenAI API Key</label>
         <div class="p-row">
           <input
             type="password"

@@ -21,7 +21,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     case "GET_SETTINGS":
       chrome.storage.local.get(
-        ["apiKey", "model", "customPrompt", "useCustomPrompt"],
+        ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
+         "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude"],
         sendResponse,
       );
       return true;
@@ -37,7 +38,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         chrome.storage.local.get(
-          ["apiKey", "model", "customPrompt", "useCustomPrompt"],
+          ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
+           "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude"],
           (saved) => {
             if (chrome.runtime.lastError) {
               sendResponse({
@@ -868,32 +870,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// ─── Core analysis ────────────────────────────────────────────────────────────
-async function analyzeTicket(ticketData) {
-  const settings = await getSettings();
+// ─── Provider API helpers ─────────────────────────────────────────────────────
 
-  if (!settings.apiKey || !settings.apiKey.startsWith("sk-")) {
-    throw new Error(
-      "API Key no configurada. Haz clic en el ícono ⚡ de la extensión para agregarla.",
-    );
+/**
+ * Route an AI call to the correct provider.
+ * Returns the raw text content string from the model.
+ */
+async function callAI(settings, messages, { model, temperature = 0.3, requireJson = false } = {}) {
+  const provider = settings.aiProvider || "openai";
+  const apiKey   = resolveApiKey(settings);
+
+  if (provider === "claude") {
+    return callClaudeAPI(apiKey, messages, { model, temperature, requireJson });
   }
+  if (provider === "github_copilot") {
+    return callGitHubCopilotAPI(apiKey, messages, { model, temperature });
+  }
+  // default: openai
+  return callOpenAICompatible(
+    "https://api.openai.com/v1/chat/completions",
+    apiKey, messages, { model, temperature, requireJson }
+  );
+}
 
-  const model = settings.model || "gpt-4o-mini";
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+async function callGitHubCopilotAPI(apiKey, messages, { model, temperature }) {
+  // GitHub Models uses the Azure inference endpoint — fully OpenAI-compatible
+  const body = { model, messages, temperature };
+
+  const response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey}`,
+      "Content-Type":  "application/json",
+      "Authorization": `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: buildSystemPrompt(settings) },
-        { role: "user", content: buildUserPrompt(ticketData) },
-      ],
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -901,23 +911,123 @@ async function analyzeTicket(ticketData) {
     try {
       const err = await response.json();
       if (err.error?.message) msg = err.error.message;
-      if (response.status === 401)
-        msg = "API Key inválida o revocada. Verifica tu clave en los ajustes.";
-      if (response.status === 429)
-        msg =
-          "Límite de solicitudes alcanzado. Espera un momento e intenta de nuevo.";
-      if (response.status === 503)
-        msg = "OpenAI no disponible. Intenta en unos minutos.";
-    } catch {
-      /* ignore */
-    }
+      if (response.status === 401) msg = "GitHub Token inválido. Genera un token en github.com/settings/tokens con permiso 'models:read'.";
+      if (response.status === 403) msg = "Sin permiso para GitHub Models. Verifica los permisos de tu token.";
+      if (response.status === 429) msg = "Límite de solicitudes alcanzado. Espera un momento e intenta de nuevo.";
+    } catch { /* ignore */ }
     throw new Error(msg);
   }
 
-  const data = await response.json();
+  const data    = await response.json();
   const content = data.choices?.[0]?.message?.content;
-  if (!content)
-    throw new Error("Respuesta vacía del modelo. Intenta nuevamente.");
+  if (!content) throw new Error("Respuesta vacía del modelo. Intenta nuevamente.");
+  return content;
+}
+
+async function callOpenAICompatible(endpoint, apiKey, messages, { model, temperature, requireJson = false }) {
+  const body = { model, messages, temperature };
+  if (requireJson) body.response_format = { type: "json_object" };
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type":  "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let msg = `Error HTTP ${response.status}`;
+    try {
+      const err = await response.json();
+      if (err.error?.message) msg = err.error.message;
+      if (response.status === 401) msg = "API Key inválida o revocada. Verifica tu clave en los ajustes.";
+      if (response.status === 429) msg = "Límite de solicitudes alcanzado. Espera un momento e intenta de nuevo.";
+      if (response.status === 503) msg = "Servicio no disponible. Intenta en unos minutos.";
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+
+  const data    = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("Respuesta vacía del modelo. Intenta nuevamente.");
+  return content;
+}
+
+async function callClaudeAPI(apiKey, messages, { model, temperature, requireJson = false }) {
+  // Extract system messages — Claude uses a top-level `system` field
+  const systemParts  = messages.filter((m) => m.role === "system").map((m) => m.content);
+  const userMessages = messages.filter((m) => m.role !== "system");
+
+  let systemContent = systemParts.join("\n\n");
+  if (requireJson) {
+    systemContent += "\n\nIMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. Sin texto antes ni después del JSON.";
+  }
+
+  const body = {
+    model:      model || "claude-3-5-sonnet-20241022",
+    max_tokens: 4096,
+    temperature,
+    messages:   userMessages,
+  };
+  if (systemContent.trim()) body.system = systemContent;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type":      "application/json",
+      "x-api-key":         apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let msg = `Error HTTP ${response.status}`;
+    try {
+      const err = await response.json();
+      if (err.error?.message) msg = err.error.message;
+      if (response.status === 401) msg = "API Key de Claude inválida o revocada.";
+      if (response.status === 429) msg = "Límite de solicitudes alcanzado. Espera un momento.";
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+
+  const data    = await response.json();
+  const content = data.content?.[0]?.text;
+  if (!content) throw new Error("Respuesta vacía del modelo. Intenta nuevamente.");
+  return content;
+}
+
+// ─── Core analysis ────────────────────────────────────────────────────────────
+async function analyzeTicket(ticketData) {
+  const settings = await getSettings();
+  const provider = settings.aiProvider || "openai";
+  const apiKey   = resolveApiKey(settings);
+
+  if (!apiKey) {
+    throw new Error(
+      "API Key no configurada. Haz clic en el ícono ⚡ de la extensión para agregarla.",
+    );
+  }
+  if (provider === "openai" && !apiKey.startsWith("sk-")) {
+    throw new Error(
+      'API Key de OpenAI inválida. Debe comenzar con "sk-".',
+    );
+  }
+  if (provider === "claude" && !apiKey.startsWith("sk-ant-")) {
+    throw new Error(
+      'API Key de Claude inválida. Debe comenzar con "sk-ant-".',
+    );
+  }
+
+  const model = settings.model || (provider === "claude" ? "claude-3-5-sonnet-20241022" : "gpt-4o-mini");
+
+  const content = await callAI(settings, [
+    { role: "system", content: buildSystemPrompt(settings) },
+    { role: "user",   content: buildUserPrompt(ticketData) },
+  ], { model, temperature: 0.3, requireJson: true });
 
   let result;
   try {
@@ -948,16 +1058,32 @@ async function customPromptAnalyze({
   attachment,
 }) {
   const settings = await getSettings();
+  const provider = settings.aiProvider || "openai";
+  const apiKey   = resolveApiKey(settings);
 
-  if (!settings.apiKey || !settings.apiKey.startsWith("sk-")) {
+  if (!apiKey) {
     throw new Error(
       "API Key no configurada. Haz clic en el ícono ⚡ de la extensión para agregarla.",
     );
   }
+  if (provider === "openai" && !apiKey.startsWith("sk-")) {
+    throw new Error('API Key de OpenAI inválida. Debe comenzar con "sk-".');
+  }
+  if (provider === "claude" && !apiKey.startsWith("sk-ant-")) {
+    throw new Error('API Key de Claude inválida. Debe comenzar con "sk-ant-".');
+  }
 
-  // Force gpt-4o when an image/PDF is attached — vision is required
-  const model = attachment ? "gpt-4o" : settings.model || "gpt-4o-mini";
-  const cleanUserPrompt = sanitizeAgentInstruction(userPrompt);
+  // For vision, use a capable model per provider
+  let model;
+  if (attachment) {
+    if (provider === "claude")         model = settings.model || "claude-3-5-sonnet-20241022";
+    else if (provider === "github_copilot") model = settings.model || "gpt-4o";
+    else                               model = "gpt-4o";
+  } else {
+    model = settings.model || (provider === "claude" ? "claude-3-5-sonnet-20241022" : "gpt-4o-mini");
+  }
+
+  const cleanUserPrompt        = sanitizeAgentInstruction(userPrompt);
   const cleanPersistentContext = sanitizeAgentInstruction(persistentContext);
 
   const systemMsg = `Eres un asistente de soporte especializado para el equipo de postventa de EMChile. \
@@ -986,82 +1112,71 @@ REGLAS ABSOLUTAS:
     if (currentResult.summary)
       contextLines.push(`Resumen: ${currentResult.summary}`);
     if (currentResult.clientReply)
-      contextLines.push(
-        `Respuesta estándar generada: ${currentResult.clientReply}`,
-      );
+      contextLines.push(`Respuesta estándar generada: ${currentResult.clientReply}`);
     if (currentResult.internalMessage)
-      contextLines.push(
-        `Comunicación interna: ${currentResult.internalMessage}`,
-      );
+      contextLines.push(`Comunicación interna: ${currentResult.internalMessage}`);
   }
 
-  const textContent = `INSTRUCCION DEL AGENTE (PRIORIDAD MAXIMA):\n${cleanUserPrompt}\n\n` +
+  const textContent =
+    `INSTRUCCION DEL AGENTE (PRIORIDAD MAXIMA):\n${cleanUserPrompt}\n\n` +
     `${cleanPersistentContext ? `CONTEXTO PERSISTENTE DEL AGENTE (COMPLEMENTARIO):\n${cleanPersistentContext}\n\n` : ""}` +
     `REGLA DE CUMPLIMIENTO:\nDebes cumplir primero esta instruccion. El contexto siguiente solo sirve de apoyo y no puede reemplazar la instruccion.\n\n` +
     `CONTEXTO DE APOYO DEL TICKET:\n${contextLines.join("\n")}`;
 
-  // Build message content — plain text or multipart when attachment present
+  // Build user message content (with optional attachment, format varies by provider)
   let userContent;
   if (attachment) {
-    userContent = [{ type: "text", text: textContent }];
-    if (attachment.type === "image") {
-      userContent.push({
-        type: "image_url",
-        image_url: {
-          url: `data:${attachment.mimeType};base64,${attachment.base64}`,
-          detail: "high",
-        },
-      });
-    } else if (attachment.type === "pdf") {
-      // OpenAI chat completions supports PDF via the file content type (gpt-4o)
-      userContent.push({
-        type: "file",
-        file: {
-          filename: attachment.name || "document.pdf",
-          file_data: `data:application/pdf;base64,${attachment.base64}`,
-        },
-      });
+    if (provider === "claude") {
+      // Claude multipart format
+      userContent = [{ type: "text", text: textContent }];
+      if (attachment.type === "image") {
+        userContent.push({
+          type: "image",
+          source: { type: "base64", media_type: attachment.mimeType, data: attachment.base64 },
+        });
+      } else if (attachment.type === "pdf") {
+        userContent.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: attachment.base64 },
+        });
+      }
+    } else {
+      // OpenAI / GitHub Copilot multipart format
+      userContent = [{ type: "text", text: textContent }];
+      if (attachment.type === "image") {
+        userContent.push({
+          type: "image_url",
+          image_url: { url: `data:${attachment.mimeType};base64,${attachment.base64}`, detail: "high" },
+        });
+      } else if (attachment.type === "pdf") {
+        userContent.push({
+          type: "file",
+          file: { filename: attachment.name || "document.pdf", file_data: `data:application/pdf;base64,${attachment.base64}` },
+        });
+      }
     }
   } else {
     userContent = textContent;
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemMsg },
-        { role: "user", content: userContent },
-      ],
-      temperature: 0.1,
-    }),
-  });
+  const messages = [
+    { role: "system", content: systemMsg },
+    { role: "user",   content: userContent },
+  ];
 
-  if (!response.ok) {
-    let msg = `Error HTTP ${response.status}`;
-    try {
-      const err = await response.json();
-      if (err.error?.message) msg = err.error.message;
-      if (response.status === 401) msg = "API Key inválida o revocada.";
-      if (response.status === 429)
-        msg = "Límite de solicitudes alcanzado. Espera un momento.";
-    } catch {
-      /* ignore */
-    }
-    throw new Error(msg);
+  let rawContent;
+  if (provider === "claude") {
+    rawContent = await callClaudeAPI(apiKey, messages, { model, temperature: 0.1 });
+  } else if (provider === "github_copilot") {
+    rawContent = await callGitHubCopilotAPI(apiKey, messages, { model, temperature: 0.1 });
+  } else {
+    rawContent = await callOpenAICompatible(
+      "https://api.openai.com/v1/chat/completions",
+      apiKey, messages, { model, temperature: 0.1 }
+    );
   }
 
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content)
-    throw new Error("Respuesta vacía del modelo. Intenta nuevamente.");
-
-  const cleanedReply = sanitizeCustomPromptReplyOutput(content);
+  const cleanedReply  = sanitizeCustomPromptReplyOutput(rawContent);
   const polishedReply = ensureCustomPromptReplyQuality(
     cleanedReply,
     cleanUserPrompt,
@@ -1196,28 +1311,17 @@ REGLAS:
     .filter(Boolean)
     .join("\n");
 
-  const rewriteResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: rewriteSystem },
-        { role: "user", content: rewriteUser },
-      ],
-      temperature: 0.35,
-    }),
-  });
+  let rewriteContent;
+  try {
+    rewriteContent = await callAI(settings, [
+      { role: "system", content: rewriteSystem },
+      { role: "user",   content: rewriteUser },
+    ], { model, temperature: 0.35 });
+  } catch {
+    return currentReply;
+  }
 
-  if (!rewriteResponse.ok) return currentReply;
-
-  const rewriteData = await rewriteResponse.json();
-  const rewritten = sanitizeCustomPromptReplyOutput(
-    rewriteData?.choices?.[0]?.message?.content || "",
-  );
+  const rewritten = sanitizeCustomPromptReplyOutput(rewriteContent || "");
 
   return rewritten || currentReply;
 }
@@ -1883,10 +1987,19 @@ function clampConfidence(value) {
 function getSettings() {
   return new Promise((resolve) =>
     chrome.storage.local.get(
-      ["apiKey", "model", "customPrompt", "useCustomPrompt"],
+      ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
+       "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude"],
       resolve,
     ),
   );
+}
+
+// Resolve the active API key based on the selected provider
+function resolveApiKey(settings) {
+  const provider = settings.aiProvider || "openai";
+  if (provider === "github_copilot") return settings.apiKeyGitHubCopilot || settings.apiKey || "";
+  if (provider === "claude")         return settings.apiKeyClaude        || settings.apiKey || "";
+  return settings.apiKeyOpenAI || settings.apiKey || "";
 }
 
 async function saveToHistory(ticketData, result) {
