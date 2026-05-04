@@ -22,12 +22,21 @@ var PROVIDER_MODELS = {
     { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet — Balanceado' },
     { value: 'claude-3-opus-20240229',     label: 'Claude 3 Opus — Avanzado' },
   ],
+  gemini: [
+    { value: 'gemini-2.0-flash',        label: 'Gemini 2.0 Flash — Rápido y económico' },
+    { value: 'gemini-2.0-flash-lite',   label: 'Gemini 2.0 Flash-Lite — Ultra rápido' },
+    { value: 'gemini-1.5-flash',        label: 'Gemini 1.5 Flash — Rápido' },
+    { value: 'gemini-1.5-flash-8b',     label: 'Gemini 1.5 Flash-8B — Ligero' },
+    { value: 'gemini-1.5-pro',          label: 'Gemini 1.5 Pro — Máxima capacidad' },
+    { value: 'gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro Preview — Más inteligente' },
+  ],
 };
 
 var PROVIDER_UI = {
-  openai:         { label: 'OpenAI API Key',     placeholder: 'sk-…' },
-  github_copilot: { label: 'GitHub Token (models:read)', placeholder: 'ghp_…' },
-  claude:         { label: 'Claude API Key',      placeholder: 'sk-ant-…' },
+  openai:         { label: 'OpenAI API Key',                    placeholder: 'sk-…' },
+  github_copilot: { label: 'GitHub Token (models:read)',        placeholder: 'ghp_…' },
+  claude:         { label: 'Claude API Key',                    placeholder: 'sk-ant-…' },
+  gemini:         { label: 'Gemini API Key (Google AI Studio)', placeholder: 'AIza…' },
 };
 
 // ── Storage key per provider ──────────────────────────────────────────────────
@@ -35,6 +44,7 @@ var PROVIDER_STORAGE_KEY = {
   openai:         'apiKeyOpenAI',
   github_copilot: 'apiKeyGitHubCopilot',
   claude:         'apiKeyClaude',
+  gemini:         'apiKeyGemini',
 };
 
 function initPopup() {
@@ -140,6 +150,10 @@ function initPopup() {
     }
     if (provider === 'claude' && !key.startsWith('sk-ant-')) {
       showStatus('⚠ La API Key de Claude debe comenzar con "sk-ant-"', 'warn');
+      return;
+    }
+    if (provider === 'gemini' && !key.startsWith('AIza')) {
+      showStatus('⚠ La API Key de Gemini debe comenzar con "AIza"', 'warn');
       return;
     }
 

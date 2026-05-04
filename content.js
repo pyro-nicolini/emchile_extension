@@ -14,15 +14,26 @@
   let currentTicketId = null;
   let isAnalyzing = false;
   let sidebarOpen = false;
+  let sidebarWidth = 500;
+  let isResizing = false;
+  let resizerEl = null;
 
   // ─── INIT ──────────────────────────────────────────────────────────────────
   function init() {
-    injectStyles();
-    injectUI();
-    setupMutationObserver();
-    setupHistoryListeners();
-    setupEmergencyClose();
-    setTimeout(checkTicketChange, 1600);
+    chrome.storage.local.get(["emchileSidebarWidth"], (res) => {
+      sidebarWidth = res.emchileSidebarWidth || 500;
+      applyWidth(sidebarWidth);
+      injectStyles();
+      injectUI();
+      setupMutationObserver();
+      setupHistoryListeners();
+      setupEmergencyClose();
+      setTimeout(checkTicketChange, 1600);
+    });
+  }
+
+  function applyWidth(w) {
+    document.documentElement.style.setProperty("--emchile-width", `${w}px`);
   }
 
   // ─── STYLES ────────────────────────────────────────────────────────────────
@@ -67,21 +78,32 @@
         border-color: rgba(168,85,247,0.85);
         animation: emchile-pulse 1.4s ease-in-out infinite;
       }
-      #emchile-fab.fab-open { right: 516px; }
+      #emchile-fab.fab-open { right: calc(var(--emchile-width, 500px) + 16px); }
       @keyframes emchile-pulse {
         0%,100% { box-shadow: 0 0 22px rgba(168,85,247,0.4), 0 6px 24px rgba(0,0,0,0.5); }
         50%      { box-shadow: 0 0 44px rgba(168,85,247,0.75), 0 0 88px rgba(0,212,255,0.18), 0 6px 24px rgba(0,0,0,0.5); }
       }
       #emchile-sidebar-frame {
         position: fixed;
-        top: 0; right: -510px;
-        width: 500px; height: 100vh;
+        top: 0; right: calc(-1 * var(--emchile-width, 500px) - 20px);
+        width: var(--emchile-width, 500px); height: 100vh;
         border: none;
         z-index: 2147483641;
         transition: right 0.32s cubic-bezier(0.4,0,0.2,1);
         box-shadow: -8px 0 48px rgba(0,0,0,0.65);
       }
       #emchile-sidebar-frame.frame-open { right: 0; }
+      
+      #emchile-resizer {
+        position: fixed;
+        top: 0; right: var(--emchile-width, 500px);
+        width: 14px; height: 100vh;
+        z-index: 2147483642;
+        cursor: col-resize;
+        transform: translateX(50%);
+        display: none;
+      }
+      #emchile-resizer.resizer-open { display: block; }
     `;
     document.head.appendChild(s);
   }
@@ -106,6 +128,35 @@
     sidebarFrame.title = "EMChile AI Desk";
     sidebarFrame.src = chrome.runtime.getURL("sidebar.html");
     document.body.appendChild(sidebarFrame);
+
+    // Resizer handle
+    resizerEl = document.createElement("div");
+    resizerEl.id = "emchile-resizer";
+    document.body.appendChild(resizerEl);
+
+    // Setup drag events
+    resizerEl.addEventListener("mousedown", (e) => {
+      isResizing = true;
+      document.body.style.userSelect = "none";
+      sidebarFrame.style.pointerEvents = "none";
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!isResizing) return;
+      let newW = window.innerWidth - e.clientX;
+      newW = Math.max(350, Math.min(newW, window.innerWidth - 100)); // min 350px, max (width - 100px)
+      sidebarWidth = newW;
+      applyWidth(sidebarWidth);
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (isResizing) {
+        isResizing = false;
+        document.body.style.userSelect = "";
+        sidebarFrame.style.pointerEvents = "auto";
+        chrome.storage.local.set({ emchileSidebarWidth: sidebarWidth });
+      }
+    });
   }
 
   // ─── FAB CLICK ─────────────────────────────────────────────────────────────
@@ -114,13 +165,13 @@
       closeSidebar();
     } else {
       openSidebar();
-      if (!isAnalyzing) triggerAnalysis();
     }
   }
 
   function openSidebar() {
     sidebarFrame.classList.add("frame-open");
     floatingBtn.classList.add("fab-open");
+    resizerEl.classList.add("resizer-open");
     floatingBtn.querySelector(".ef-text").textContent = "Cerrar";
     sidebarOpen = true;
   }
@@ -128,6 +179,7 @@
   function closeSidebar() {
     sidebarFrame.classList.remove("frame-open");
     floatingBtn.classList.remove("fab-open");
+    resizerEl.classList.remove("resizer-open");
     floatingBtn.querySelector(".ef-text").textContent = "AI Desk";
     sidebarOpen = false;
   }
@@ -785,8 +837,79 @@
       case "AUTO_FILL_FIELDS":
         autoFillTicketFields(data || {});
         break;
+      case "SEARCH_OC_MP":
+        searchOcInMercadoPublico(data?.oc);
+        break;
     }
   });
+
+  // ─── MERCADO PUBLICO SEARCH ────────────────────────────────────────────────
+  function searchOcInMercadoPublico(ocNumber) {
+    if (!ocNumber) return;
+    if (!window.location.href.includes("mercadopublico.cl")) {
+      postToSidebar({ type: "TOAST", data: { msg: "⚠ Sólo funciona en Mercado Público" } });
+      return;
+    }
+    
+    // 1. Buscar input directamente por su placeholder (como se ve en la captura)
+    let inputEl = document.querySelector('input[placeholder*="697-475"]');
+    let btnEl = null;
+
+    if (!inputEl) {
+      // 2. Fallback: buscar cualquier input de texto dentro de algo que diga "Buscar por ID"
+      const labels = Array.from(document.querySelectorAll('label, span, div, h1, h2, h3, h4, h5, h6, p'));
+      const idLabel = labels.find(l => l.textContent.trim().toUpperCase() === "BUSCAR POR ID");
+      if (idLabel) {
+        const container = idLabel.closest("div, td, tr, table, section, fieldset");
+        if (container) {
+          inputEl = container.querySelector('input[type="text"]');
+        }
+      }
+    }
+
+    if (inputEl) {
+      // Buscar el botón correspondiente
+      // Primero intentar un botón que diga "Buscar ID"
+      const allBtns = Array.from(document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn'));
+      btnEl = allBtns.find(b => {
+        const txt = (b.value || b.textContent || "").trim().toUpperCase();
+        return txt === "BUSCAR ID" || txt.includes("BUSCAR ID");
+      });
+
+      // Si no, buscar el botón de submit más cercano al input
+      if (!btnEl) {
+        let parent = inputEl.parentElement;
+        for (let i = 0; i < 5; i++) { // subir hasta 5 niveles
+          if (!parent) break;
+          btnEl = parent.querySelector('input[type="submit"], input[type="button"], button');
+          if (btnEl) break;
+          parent = parent.parentElement;
+        }
+      }
+
+      // Rellenar el input
+      inputEl.value = ocNumber;
+      // Disparar eventos nativos para que React/Angular/ASP.NET registren el cambio
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+      inputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+      
+      if (btnEl) {
+        btnEl.click();
+        postToSidebar({ type: "TOAST", data: { msg: "Buscando: " + ocNumber } });
+      } else {
+        // Fallback: si no hay botón, intentar enviar el formulario
+        if (inputEl.form) {
+          inputEl.form.submit();
+          postToSidebar({ type: "TOAST", data: { msg: "Enviando búsqueda: " + ocNumber } });
+        } else {
+          postToSidebar({ type: "TOAST", data: { msg: "Pegado: " + ocNumber + " (botón no encontrado)" } });
+        }
+      }
+    } else {
+      postToSidebar({ type: "TOAST", data: { msg: "⚠ No se encontró el campo 'Buscar por ID'" } });
+    }
+  }
 
   // ─── INSERT IN ZOHO EDITOR ─────────────────────────────────────────────────
   // Delegates to background.js which uses chrome.scripting.executeScript with

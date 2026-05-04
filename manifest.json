@@ -7,16 +7,22 @@
   "host_permissions": [
     "https://*.zoho.com/*",
     "https://*.zohodesk.com/*",
+    "https://*.mercadopublico.cl/*",
     "https://api.openai.com/*",
     "https://models.inference.ai.azure.com/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://*.zoho.com/*", "https://*.zohodesk.com/*"],
+      "matches": [
+        "https://*.zoho.com/*",
+        "https://*.zohodesk.com/*",
+        "https://*.mercadopublico.cl/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": false
@@ -29,7 +35,11 @@
   "web_accessible_resources": [
     {
       "resources": ["sidebar.html", "sidebar.css", "sidebar.js"],
-      "matches": ["https://*.zoho.com/*", "https://*.zohodesk.com/*"]
+      "matches": [
+        "https://*.zoho.com/*",
+        "https://*.zohodesk.com/*",
+        "https://*.mercadopublico.cl/*"
+      ]
     }
   ]
 }

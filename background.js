@@ -22,7 +22,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case "GET_SETTINGS":
       chrome.storage.local.get(
         ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
-         "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude"],
+         "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini"],
         sendResponse,
       );
       return true;
@@ -39,7 +39,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         chrome.storage.local.get(
           ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
-           "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude"],
+           "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini"],
           (saved) => {
             if (chrome.runtime.lastError) {
               sendResponse({
@@ -886,11 +886,109 @@ async function callAI(settings, messages, { model, temperature = 0.3, requireJso
   if (provider === "github_copilot") {
     return callGitHubCopilotAPI(apiKey, messages, { model, temperature });
   }
+  if (provider === "gemini") {
+    return callGeminiAPI(apiKey, messages, { model, temperature, requireJson });
+  }
   // default: openai
   return callOpenAICompatible(
     "https://api.openai.com/v1/chat/completions",
     apiKey, messages, { model, temperature, requireJson }
   );
+}
+
+/**
+ * Call the Google Gemini REST API (generateContent endpoint).
+ * Maps OpenAI-style messages → Gemini `contents` format.
+ * Supports JSON mode via responseMimeType and inline image/PDF parts.
+ */
+async function callGeminiAPI(apiKey, messages, { model, temperature, requireJson = false }) {
+  const geminiModel = model || "gemini-2.0-flash";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
+
+  // Separate system instructions from conversation messages
+  const systemParts = messages
+    .filter((m) => m.role === "system")
+    .map((m) => ({ text: String(m.content || "") }));
+
+  const userMessages = messages.filter((m) => m.role !== "system");
+
+  // Convert messages array to Gemini `contents` (role must be "user" or "model")
+  const contents = userMessages.map((m) => {
+    const role = m.role === "assistant" ? "model" : "user";
+    let parts;
+
+    if (Array.isArray(m.content)) {
+      // Multipart content (vision / documents)
+      parts = m.content.map((part) => {
+        if (part.type === "text") return { text: part.text };
+        // OpenAI-style image_url
+        if (part.type === "image_url" && part.image_url?.url) {
+          const dataUrl = part.image_url.url;
+          const match  = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            return { inlineData: { mimeType: match[1], data: match[2] } };
+          }
+        }
+        // Claude-style image source
+        if (part.type === "image" && part.source?.data) {
+          return { inlineData: { mimeType: part.source.media_type, data: part.source.data } };
+        }
+        // Claude-style document
+        if (part.type === "document" && part.source?.data) {
+          return { inlineData: { mimeType: "application/pdf", data: part.source.data } };
+        }
+        // OpenAI-style file
+        if (part.type === "file" && part.file?.file_data) {
+          const match = part.file.file_data.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            return { inlineData: { mimeType: match[1], data: match[2] } };
+          }
+        }
+        return { text: JSON.stringify(part) };
+      });
+    } else {
+      parts = [{ text: String(m.content || "") }];
+    }
+
+    return { role, parts };
+  });
+
+  const body = {
+    contents,
+    generationConfig: {
+      temperature,
+      maxOutputTokens: 4096,
+      ...(requireJson ? { responseMimeType: "application/json" } : {}),
+    },
+  };
+
+  if (systemParts.length) {
+    body.systemInstruction = { parts: systemParts };
+  }
+
+  const response = await fetch(endpoint, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let msg = `Error HTTP ${response.status}`;
+    try {
+      const err = await response.json();
+      if (err.error?.message) msg = err.error.message;
+      if (response.status === 400) msg = "Solicitud inválida a Gemini. Verifica el modelo y la API Key.";
+      if (response.status === 401 || response.status === 403) msg = "API Key de Gemini inválida o sin permisos. Verifica tu clave en Google AI Studio.";
+      if (response.status === 429) msg = "Límite de solicitudes de Gemini alcanzado. Espera un momento e intenta de nuevo.";
+      if (response.status === 503) msg = "Servicio de Gemini no disponible. Intenta en unos minutos.";
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+
+  const data    = await response.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!content) throw new Error("Respuesta vacía de Gemini. Intenta nuevamente.");
+  return content;
 }
 
 async function callGitHubCopilotAPI(apiKey, messages, { model, temperature }) {
@@ -1022,7 +1120,7 @@ async function analyzeTicket(ticketData) {
     );
   }
 
-  const model = settings.model || (provider === "claude" ? "claude-3-5-sonnet-20241022" : "gpt-4o-mini");
+  const model = settings.model || (provider === "claude" ? "claude-3-5-sonnet-20241022" : provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o-mini");
 
   const content = await callAI(settings, [
     { role: "system", content: buildSystemPrompt(settings) },
@@ -1076,11 +1174,12 @@ async function customPromptAnalyze({
   // For vision, use a capable model per provider
   let model;
   if (attachment) {
-    if (provider === "claude")         model = settings.model || "claude-3-5-sonnet-20241022";
+    if (provider === "claude")           model = settings.model || "claude-3-5-sonnet-20241022";
     else if (provider === "github_copilot") model = settings.model || "gpt-4o";
-    else                               model = "gpt-4o";
+    else if (provider === "gemini")      model = settings.model || "gemini-2.0-flash";
+    else                                 model = "gpt-4o";
   } else {
-    model = settings.model || (provider === "claude" ? "claude-3-5-sonnet-20241022" : "gpt-4o-mini");
+    model = settings.model || (provider === "claude" ? "claude-3-5-sonnet-20241022" : provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o-mini");
   }
 
   const cleanUserPrompt        = sanitizeAgentInstruction(userPrompt);
@@ -1140,6 +1239,17 @@ REGLAS ABSOLUTAS:
           source: { type: "base64", media_type: "application/pdf", data: attachment.base64 },
         });
       }
+    } else if (provider === "gemini") {
+      // Gemini native inlineData format — callGeminiAPI also auto-converts image_url but
+      // using inlineData directly avoids an extra regex pass.
+      userContent = [{ type: "text", text: textContent }];
+      if (attachment.type === "image" || attachment.type === "pdf") {
+        const mimeType = attachment.type === "pdf" ? "application/pdf" : attachment.mimeType;
+        userContent.push({
+          type: "image_url",
+          image_url: { url: `data:${mimeType};base64,${attachment.base64}` },
+        });
+      }
     } else {
       // OpenAI / GitHub Copilot multipart format
       userContent = [{ type: "text", text: textContent }];
@@ -1169,6 +1279,8 @@ REGLAS ABSOLUTAS:
     rawContent = await callClaudeAPI(apiKey, messages, { model, temperature: 0.1 });
   } else if (provider === "github_copilot") {
     rawContent = await callGitHubCopilotAPI(apiKey, messages, { model, temperature: 0.1 });
+  } else if (provider === "gemini") {
+    rawContent = await callGeminiAPI(apiKey, messages, { model, temperature: 0.1 });
   } else {
     rawContent = await callOpenAICompatible(
       "https://api.openai.com/v1/chat/completions",
@@ -1988,7 +2100,7 @@ function getSettings() {
   return new Promise((resolve) =>
     chrome.storage.local.get(
       ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
-       "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude"],
+       "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini"],
       resolve,
     ),
   );
@@ -1999,6 +2111,7 @@ function resolveApiKey(settings) {
   const provider = settings.aiProvider || "openai";
   if (provider === "github_copilot") return settings.apiKeyGitHubCopilot || settings.apiKey || "";
   if (provider === "claude")         return settings.apiKeyClaude        || settings.apiKey || "";
+  if (provider === "gemini")         return settings.apiKeyGemini         || settings.apiKey || "";
   return settings.apiKeyOpenAI || settings.apiKey || "";
 }
 

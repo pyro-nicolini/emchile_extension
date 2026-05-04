@@ -17,8 +17,10 @@
           <span class="sh-name">EMChile</span>
           <span class="sh-sub">AI · DESK</span>
         </div>
+        <button class="btn-hdr-analyze" id="js-hdr-analyze" title="Analizar Ticket">▶ Analizar</button>
       </div>
       <div class="sh-actions">
+        <button class="ic-btn ic-tabla" id="js-tabla" title="Tabla de OCs">⊞</button>
         <button class="ic-btn" id="js-settings" title="Configuración">⚙</button>
         <button class="ic-btn" id="js-history" title="Historial">◷</button>
         <button class="ic-btn ic-close" id="js-close" title="Cerrar">✕</button>
@@ -43,9 +45,9 @@
         <div class="idle-glyph">⚡</div>
         <p class="idle-title">EMChile AI Desk</p>
         <p class="idle-sub">
-          Haz clic en el botón flotante <strong>⚡</strong><br />para analizar
-          el ticket activo en Zoho
+          Abre un ticket en Zoho Desk y presiona Analizar<br />para comenzar el proceso.
         </p>
+        <button class="btn-idle-analyze" id="js-idle-analyze">▶ Iniciar Análisis</button>
         <div class="idle-tip">
           <span class="tip-dot"></span>
           <span>Detecta automáticamente el ticket abierto</span>
@@ -66,11 +68,34 @@
 
       <!-- ── ERROR ─────────────────────────────────────────────────────────── -->
       <div class="sv hidden" id="sv-error">
-        <div class="err-icon">⚠</div>
-        <p class="err-title">Error de análisis</p>
-        <p class="err-msg" id="js-errmsg">—</p>
-        <button class="btn-primary" id="js-retry">↺ Reintentar</button>
-        <button class="btn-ghost" id="js-goto-cfg">⚙ Configurar API Key</button>
+        <div class="err-panel">
+          <div class="err-icon-wrap">
+            <span class="err-icon">⚠</span>
+          </div>
+          <p class="err-title">Error de análisis</p>
+          <div class="err-detail-box">
+            <div class="err-detail-label">Detalle del error</div>
+            <p class="err-msg" id="js-errmsg">—</p>
+          </div>
+          <div class="err-tips">
+            <div class="err-tip-item">
+              <span class="err-tip-dot"></span>
+              <span>Verifica que tu API Key sea válida y esté activa</span>
+            </div>
+            <div class="err-tip-item">
+              <span class="err-tip-dot"></span>
+              <span>Revisa tu conexión a internet</span>
+            </div>
+            <div class="err-tip-item">
+              <span class="err-tip-dot"></span>
+              <span>Asegúrate de tener créditos disponibles en el proveedor de IA</span>
+            </div>
+          </div>
+        </div>
+        <div class="err-actions">
+          <button class="btn-primary" id="js-retry">↺ Reintentar análisis</button>
+          <button class="btn-ghost" id="js-goto-cfg">⚙ Configurar API Key</button>
+        </div>
       </div>
 
       <!-- ── RESULTS ───────────────────────────────────────────────────────── -->
@@ -282,6 +307,61 @@
       </div>
       <!-- /sv-results -->
 
+      <!-- ── TABLA OC ──────────────────────────────────────────────────────── -->
+      <div class="sv hidden" id="sv-tabla">
+        <!-- Toolbar superior -->
+        <div class="tbl-toolbar">
+          <span class="tbl-toolbar-title">⊞ Tabla de OCs</span>
+          <div class="tbl-toolbar-right">
+            <button class="btn-ghost-sm" id="js-tbl-copy" title="Copiar info">⧉ Copiar</button>
+            <button class="btn-ghost-sm" id="js-tbl-csv" title="Exportar a Excel (CSV)">⬇ Excel</button>
+            <span class="tbl-count" id="js-tbl-count">0 OCs</span>
+            <button class="btn-danger-sm" id="js-tbl-clear" title="Limpiar todo">✕</button>
+          </div>
+        </div>
+
+        <!-- Input para pegar OCs -->
+        <div class="tbl-import-zone">
+          <div class="tbl-import-label">Pegar OCs</div>
+          <div class="tbl-import-row">
+            <input
+              id="js-tbl-input"
+              class="tbl-import-input"
+              type="text"
+              placeholder="Ej: 1555-4541-AG25, 1702-976-AG25 (separadas por coma o espacio)"
+            />
+            <button class="btn-tbl-add" id="js-tbl-add">+ Agregar</button>
+          </div>
+        </div>
+
+        <!-- Tabla -->
+        <div class="tbl-scroll">
+          <table class="oc-table" id="js-oc-table">
+            <thead>
+              <tr>
+                <th class="tbl-th">OC</th>
+                <th class="tbl-th">Estado OC</th>
+                <th class="tbl-th">MP</th>
+                <th class="tbl-th">Ticket Desk</th>
+                <th class="tbl-th">Cancelación</th>
+                <th class="tbl-th">¿Mandó mail?</th>
+                <th class="tbl-th">Último correo</th>
+                <th class="tbl-th">Obs.</th>
+                <th class="tbl-th tbl-th-del"></th>
+              </tr>
+            </thead>
+            <tbody id="js-tbl-body">
+              <!-- Filas generadas por JS -->
+            </tbody>
+          </table>
+          <div class="tbl-empty hidden" id="js-tbl-empty">
+            <div class="tbl-empty-icon">⊞</div>
+            <p>Sin OCs registradas.<br>Pega las OCs arriba para comenzar.</p>
+          </div>
+        </div>
+      </div>
+      <!-- /sv-tabla -->
+
       <!-- ── HISTORY ───────────────────────────────────────────────────────── -->
       <div class="sv hidden" id="sv-history">
         <div class="hist-head">
@@ -301,6 +381,7 @@
             <option value="openai">OpenAI (GPT)</option>
             <option value="github_copilot">GitHub Copilot</option>
             <option value="claude">Claude (Anthropic)</option>
+            <option value="gemini">Gemini (Google)</option>
           </select>
 
           <label class="cfg-label" id="js-apikey-label">OpenAI API Key</label>

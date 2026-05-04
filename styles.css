@@ -4,23 +4,23 @@
 ═══════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  --bg0: #07080e;
-  --bg1: #0b0c16;
-  --bg2: #10111c;
-  --bg3: #15162200;
+  --bg0: #0f1117;
+  --bg1: #131520;
+  --bg2: #1c1e2a;
+  --bg3: #20222e00;
   --cyan: #00d4ff;
-  --cyan2: rgba(0, 212, 255, 0.12);
-  --cyan3: rgba(0, 212, 255, 0.06);
+  --cyan2: rgba(0, 212, 255, 0.14);
+  --cyan3: rgba(0, 212, 255, 0.07);
   --purple: #a855f7;
-  --purple2: rgba(168, 85, 247, 0.18);
+  --purple2: rgba(168, 85, 247, 0.2);
   --red: #ff4757;
   --green: #06ffa5;
   --yellow: #fbbf24;
-  --t1: #e2e8f0;
-  --t2: #8892a4;
-  --t3: #4a5568;
-  --border: rgba(0, 212, 255, 0.13);
-  --border-a: rgba(0, 212, 255, 0.4);
+  --t1: #e8edf5;
+  --t2: #9ba8bc;
+  --t3: #5a6478;
+  --border: rgba(0, 212, 255, 0.14);
+  --border-a: rgba(0, 212, 255, 0.45);
   --mono: "Menlo", "Monaco", "Cascadia Code", "Courier New", monospace;
   --r: 8px;
   --tr: 0.2s cubic-bezier(0.4, 0, 0.2, 1);

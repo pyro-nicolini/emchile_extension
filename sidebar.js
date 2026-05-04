@@ -24,18 +24,28 @@
       { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet · Balanceado" },
       { value: "claude-3-opus-20240229",     label: "Claude 3 Opus · Avanzado" },
     ],
+    gemini: [
+      { value: "gemini-2.0-flash",            label: "Gemini 2.0 Flash · Rápido" },
+      { value: "gemini-2.0-flash-lite",       label: "Gemini 2.0 Flash-Lite · Ultra rápido" },
+      { value: "gemini-1.5-flash",            label: "Gemini 1.5 Flash · Rápido" },
+      { value: "gemini-1.5-flash-8b",         label: "Gemini 1.5 Flash-8B · Ligero" },
+      { value: "gemini-1.5-pro",              label: "Gemini 1.5 Pro · Máxima capacidad" },
+      { value: "gemini-2.5-pro-preview-05-06", label: "Gemini 2.5 Pro Preview · Más inteligente" },
+    ],
   };
 
   var PROVIDER_UI = {
-    openai:         { label: "OpenAI API Key",  placeholder: "sk-…" },
-    github_copilot: { label: "GitHub Token (models:read)", placeholder: "ghp_…" },
-    claude:         { label: "Claude API Key",   placeholder: "sk-ant-…" },
+    openai:         { label: "OpenAI API Key",                    placeholder: "sk-…" },
+    github_copilot: { label: "GitHub Token (models:read)",        placeholder: "ghp_…" },
+    claude:         { label: "Claude API Key",                    placeholder: "sk-ant-…" },
+    gemini:         { label: "Gemini API Key (Google AI Studio)", placeholder: "AIza…" },
   };
 
   var PROVIDER_STORAGE_KEY = {
     openai:         "apiKeyOpenAI",
     github_copilot: "apiKeyGitHubCopilot",
     claude:         "apiKeyClaude",
+    gemini:         "apiKeyGemini",
   };
   // ─── State ─────────────────────────────────────────────────────────────────
   let currentResult = null;
@@ -54,6 +64,8 @@
       btnSettings: $("js-settings"),
       btnHistory: $("js-history"),
       btnClose: $("js-close"),
+      btnHdrAnalyze: $("js-hdr-analyze"),
+      btnIdleAnalyze: $("js-idle-analyze"),
       tid: $("js-tid"),
       tsub: $("js-tsub"),
       cat: $("js-cat"),
@@ -110,6 +122,16 @@
       cpAttachName: $("js-cp-attach-name"),
       btnCpRemove: $("js-cp-remove"),
       btnAntiSample: $("js-anti-sample"),
+      // Tabla
+      btnTabla:    $("js-tabla"),
+      tblInput:    $("js-tbl-input"),
+      btnTblAdd:   $("js-tbl-add"),
+      tblBody:     $("js-tbl-body"),
+      tblCount:    $("js-tbl-count"),
+      tblEmpty:    $("js-tbl-empty"),
+      btnTblClear: $("js-tbl-clear"),
+      btnTblCopy:  $("js-tbl-copy"),
+      btnTblCsv:   $("js-tbl-csv"),
     };
 
     if (!el.btnClose || !el.btnSettings || !el.toast) {
@@ -120,6 +142,7 @@
     bindUI();
     loadCustomPromptContext();
     loadAnalysisContexts();
+    loadTabla();
     showView("idle");
     notifyContent({ type: "SIDEBAR_READY" });
   }
@@ -235,6 +258,20 @@
     el.btnSaveCfg.addEventListener("click", saveSettings);
     el.btnBackCfg.addEventListener("click", () => showView(previousView));
 
+    // Analysis Buttons
+    if (el.btnHdrAnalyze) {
+      el.btnHdrAnalyze.addEventListener("click", () => {
+        showView("loading");
+        notifyContent({ type: "RE_ANALYZE" });
+      });
+    }
+    if (el.btnIdleAnalyze) {
+      el.btnIdleAnalyze.addEventListener("click", () => {
+        showView("loading");
+        notifyContent({ type: "RE_ANALYZE" });
+      });
+    }
+
     // Custom Prompt
     el.btnCpRun.addEventListener("click", runCustomPrompt);
     if (el.btnAntiSample) {
@@ -256,6 +293,41 @@
     el.cpInput.addEventListener("paste", handleCpPaste);
     if (el.cpContextInput) {
       el.cpContextInput.addEventListener("input", scheduleSaveCustomPromptContext);
+    }
+
+    // Tabla
+    if (el.btnTabla) {
+      el.btnTabla.addEventListener("click", () => {
+        if (activeView === "tabla") {
+          el.btnTabla.classList.remove("active");
+          showView(previousView);
+        } else {
+          previousView = activeView;
+          el.btnTabla.classList.add("active");
+          showView("tabla");
+        }
+      });
+    }
+    if (el.btnTblAdd) {
+      el.btnTblAdd.addEventListener("click", handleTblAdd);
+    }
+    if (el.tblInput) {
+      el.tblInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") handleTblAdd();
+      });
+    }
+    if (el.btnTblClear) {
+      el.btnTblClear.addEventListener("click", () => {
+        if (confirm("¿Limpiar toda la tabla de OCs?")) {
+          chrome.storage.local.set({ ocTracking: [] }, () => loadTabla());
+        }
+      });
+    }
+    if (el.btnTblCopy) {
+      el.btnTblCopy.addEventListener("click", copyTablaText);
+    }
+    if (el.btnTblCsv) {
+      el.btnTblCsv.addEventListener("click", exportTablaCsv);
     }
 
     // Messages from content.js
@@ -325,6 +397,7 @@
     "results",
     "history",
     "settings",
+    "tabla",
   ];
 
   function showView(name) {
@@ -933,6 +1006,10 @@
       showToast('⚠ La API Key de Claude debe comenzar con "sk-ant-"');
       return;
     }
+    if (provider === "gemini" && !key.startsWith("AIza")) {
+      showToast('⚠ La API Key de Gemini debe comenzar con "AIza"');
+      return;
+    }
 
     var providerStorageKey = PROVIDER_STORAGE_KEY[provider];
     var data = {
@@ -965,6 +1042,240 @@
     el.toast.classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.toast.classList.remove("show"), 2600);
+  }
+
+  // ─── TABLA OC MODULE ───────────────────────────────────────────────────────
+  var TABLA_ESTADO_OC = [
+    { value: "pendiente",            label: "Pendiente" },
+    { value: "aceptada",             label: "Aceptada" },
+    { value: "recepcion_conforme",   label: "Recepción Conforme" },
+    { value: "cancelada",            label: "Cancelada" },
+    { value: "solicita_cancelacion", label: "Solicita cancelación" },
+    { value: "rechazada",            label: "Rechazada" },
+    { value: "sin_info",             label: "Sin info" },
+  ];
+
+  var TABLA_DEFAULTS = {
+    estado_oc:       "pendiente",
+    mp:              "no",
+    ticket_desk:     "no",
+    cancelacion:     "no",
+    cliente_escribio: "no",
+    ultimo_correo:   "",
+    observaciones:   "",
+  };
+
+  let ocRows = []; // Array<{ oc, estado_oc, mp, ticket_desk, cancelacion, cliente_escribio, ultimo_correo, observaciones }>
+
+  function loadTabla() {
+    chrome.storage.local.get(["ocTracking"], (res) => {
+      if (chrome.runtime.lastError) return;
+      ocRows = res.ocTracking || [];
+      // Migrar datos antiguos al nuevo nombre de estado
+      ocRows.forEach(row => {
+        if (row.estado_oc === "pide_cancelacion") row.estado_oc = "solicita_cancelacion";
+      });
+      renderTabla();
+    });
+  }
+
+  function saveTabla() {
+    chrome.storage.local.set({ ocTracking: ocRows });
+  }
+
+  function handleTblAdd() {
+    if (!el.tblInput) return;
+    var raw = el.tblInput.value.trim();
+    if (!raw) { showToast("⚠ Pega al menos una OC"); return; }
+    // Split by comma, semicolon, or whitespace
+    var tokens = raw.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+    var added = 0;
+    tokens.forEach(oc => {
+      var norm = oc.toUpperCase();
+      if (!ocRows.find(r => r.oc === norm)) {
+        ocRows.push(Object.assign({ oc: norm }, TABLA_DEFAULTS));
+        added++;
+      }
+    });
+    el.tblInput.value = "";
+    saveTabla();
+    renderTabla();
+    if (added > 0) showToast(`✓ ${added} OC${added > 1 ? "s" : ""} agregada${added > 1 ? "s" : ""}`);
+    else showToast("⚠ Todas esas OCs ya estaban en la tabla");
+  }
+
+  function renderTabla() {
+    if (!el.tblBody || !el.tblCount || !el.tblEmpty) return;
+    el.tblCount.textContent = `${ocRows.length} OC${ocRows.length !== 1 ? "s" : ""}`;
+
+    if (!ocRows.length) {
+      el.tblBody.innerHTML = "";
+      el.tblEmpty.classList.remove("hidden");
+      return;
+    }
+    el.tblEmpty.classList.add("hidden");
+
+    el.tblBody.innerHTML = ocRows.map((row, idx) => buildRow(row, idx)).join("");
+
+    // Bind change events
+    el.tblBody.querySelectorAll("[data-field]").forEach(input => {
+      input.addEventListener("change", () => {
+        var idx = Number(input.closest("tr").dataset.idx);
+        var field = input.dataset.field;
+        ocRows[idx][field] = input.value;
+        if (field === "estado_oc") applyEstadoClass(input, input.value);
+        saveTabla();
+      });
+      input.addEventListener("input", () => {
+        var idx = Number(input.closest("tr").dataset.idx);
+        var field = input.dataset.field;
+        ocRows[idx][field] = input.value;
+        saveTabla();
+      });
+    });
+
+    // Bind OC click to search in Mercado Publico
+    el.tblBody.querySelectorAll(".tbl-oc-cell").forEach(cell => {
+      cell.classList.add("tbl-oc-clickable");
+      cell.title = "Buscar en Mercado Público";
+      cell.addEventListener("click", () => {
+        var idx = Number(cell.closest("tr").dataset.idx);
+        var oc = ocRows[idx].oc;
+        notifyContent({ type: "SEARCH_OC_MP", data: { oc } });
+      });
+    });
+
+    // Bind delete buttons
+    el.tblBody.querySelectorAll(".btn-tbl-del").forEach(btn => {
+      btn.addEventListener("click", () => {
+        var idx = Number(btn.closest("tr").dataset.idx);
+        ocRows.splice(idx, 1);
+        saveTabla();
+        renderTabla();
+      });
+    });
+  }
+
+  function buildRow(row, idx) {
+    var estadoOpts = TABLA_ESTADO_OC.map(o =>
+      `<option value="${o.value}"${row.estado_oc === o.value ? " selected" : ""}>${o.label}</option>`
+    ).join("");
+
+    var yesNo = (val) =>
+      ["no","si"].map(v =>
+        `<option value="${v}"${row[val] === v ? " selected" : ""}>${v === "si" ? "Sí" : "No"}</option>`
+      ).join("");
+    var cancelOpts = ["no","si","por_confirmar"].map(v =>
+      `<option value="${v}"${row.cancelacion === v ? " selected" : ""}>` +
+      (v === "no" ? "No" : v === "si" ? "Sí" : "Por confirmar") +
+      "</option>"
+    ).join("");
+    var mailOpts = ["no","si","por_revisar"].map(v =>
+      `<option value="${v}"${row.cliente_escribio === v ? " selected" : ""}>` +
+      (v === "no" ? "No" : v === "si" ? "Sí" : "Por revisar") +
+      "</option>"
+    ).join("");
+
+    var estadoClass = `estado-${row.estado_oc || "pendiente"}`;
+
+    return `<tr class="tbl-tr" data-idx="${idx}">
+      <td class="tbl-td tbl-oc-cell">${esc(row.oc)}</td>
+      <td class="tbl-td">
+        <select class="tbl-select ${estadoClass}" data-field="estado_oc">${estadoOpts}</select>
+      </td>
+      <td class="tbl-td">
+        <select class="tbl-select" data-field="mp"><option value="no"${row.mp==="no"?" selected":""}>No</option><option value="si"${row.mp==="si"?" selected":""}>Sí</option></select>
+      </td>
+      <td class="tbl-td">
+        <select class="tbl-select" data-field="ticket_desk"><option value="no"${row.ticket_desk==="no"?" selected":""}>No</option><option value="si"${row.ticket_desk==="si"?" selected":""}>Sí</option></select>
+      </td>
+      <td class="tbl-td">
+        <select class="tbl-select" data-field="cancelacion">${cancelOpts}</select>
+      </td>
+      <td class="tbl-td">
+        <select class="tbl-select" data-field="cliente_escribio">${mailOpts}</select>
+      </td>
+      <td class="tbl-td">
+        <input class="tbl-date" type="date" data-field="ultimo_correo" value="${esc(row.ultimo_correo || "")}" />
+      </td>
+      <td class="tbl-td">
+        <input class="tbl-text" type="text" data-field="observaciones" value="${esc(row.observaciones || "")}" placeholder="Comentario…" />
+      </td>
+      <td class="tbl-td">
+        <button class="btn-tbl-del" title="Eliminar fila">✕</button>
+      </td>
+    </tr>`;
+  }
+
+  function applyEstadoClass(sel, val) {
+    sel.className = sel.className.replace(/\bestado-\S+/g, "").trim();
+    sel.classList.add(`estado-${val || "pendiente"}`);
+  }
+
+  function copyTablaText() {
+    if (!ocRows.length) {
+      showToast("⚠ Tabla vacía");
+      return;
+    }
+    let text = "";
+    ocRows.forEach(row => {
+      let estado = TABLA_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
+      text += `*OC: ${row.oc}*\n`;
+      text += `Estado: ${estado}\n`;
+      text += `MP: ${row.mp === "si" ? "Sí" : "No"} | Desk: ${row.ticket_desk === "si" ? "Sí" : "No"} | Canc: ${row.cancelacion} | Mail: ${row.cliente_escribio}\n`;
+      if (row.ultimo_correo) text += `Últ. correo: ${row.ultimo_correo}\n`;
+      if (row.observaciones) text += `Obs: ${row.observaciones}\n`;
+      text += `\n`;
+    });
+    
+    copyText(text.trim()).then(() => {
+      if (el.btnTblCopy) animateCopy(el.btnTblCopy);
+      showToast("✓ Info copiada al portapapeles");
+    });
+  }
+
+  function exportTablaCsv() {
+    if (!ocRows.length) {
+      showToast("⚠ Tabla vacía");
+      return;
+    }
+    
+    let headers = ["OC", "Estado OC", "MP", "Ticket Desk", "Cancelacion", "Mando mail", "Ultimo correo", "Observaciones"];
+    let csvContent = "\uFEFF"; // BOM para Excel
+    csvContent += headers.join(";") + "\r\n";
+    
+    ocRows.forEach(row => {
+      let estado = TABLA_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
+      let cols = [
+        row.oc,
+        estado,
+        row.mp === "si" ? "Sí" : "No",
+        row.ticket_desk === "si" ? "Sí" : "No",
+        row.cancelacion,
+        row.cliente_escribio,
+        row.ultimo_correo,
+        row.observaciones
+      ];
+      let rowStr = cols.map(c => {
+        let str = String(c || "").replace(/"/g, '""');
+        if (str.includes(";") || str.includes("\"") || str.includes("\n")) {
+          return `"${str}"`;
+        }
+        return str;
+      }).join(";");
+      csvContent += rowStr + "\r\n";
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.setAttribute("download", `oc_tracking_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("✓ Excel exportado");
   }
 
   // ─── START ─────────────────────────────────────────────────────────────────
