@@ -29,6 +29,7 @@
       setupHistoryListeners();
       setupEmergencyClose();
       setTimeout(checkTicketChange, 1600);
+      setInterval(scanMercadoPublicoResults, 3000);
     });
   }
 
@@ -253,6 +254,7 @@
     const conversationSupplement = extractConversationSupplement();
     return {
       ticketId: extractTicketId(),
+      latestEmailDate: extractLatestEmailDate(),
       subject,
       customerName: extractCustomerName(),
       customerEmail: extractCustomerEmail(),
@@ -486,6 +488,80 @@
       document.querySelector("time[datetime]");
     if (el) return el.getAttribute("datetime") || el.textContent.trim();
     return "No detectada";
+  }
+
+  function extractLatestEmailDate() {
+    const monthMap = { jan:"01", feb:"02", mar:"03", apr:"04", may:"05", jun:"06", jul:"07", aug:"08", sep:"09", oct:"10", nov:"11", dec:"12",
+                       ene:"01", abr:"04", ago:"08", dic:"12" };
+    
+    let maxDate = null;
+    let maxTimestamp = 0;
+
+    function parseAndCompare(dateStr) {
+      if (!dateStr) return;
+      dateStr = dateStr.toLowerCase().trim();
+      
+      if (dateStr.match(/\bhoy\b/) || dateStr.match(/\btoday\b/)) {
+        let d = new Date();
+        let isoStr = d.toISOString().split('T')[0];
+        let ts = d.getTime();
+        if (ts > maxTimestamp) { maxTimestamp = ts; maxDate = isoStr; }
+        return;
+      }
+      if (dateStr.match(/\bayer\b/) || dateStr.match(/\byesterday\b/)) {
+        let d = new Date(); d.setDate(d.getDate() - 1);
+        let isoStr = d.toISOString().split('T')[0];
+        let ts = d.getTime();
+        if (ts > maxTimestamp) { maxTimestamp = ts; maxDate = isoStr; }
+        return;
+      }
+
+      let regex = /(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|ene|abr|ago|dic)[a-z]*(?:\s+(\d{4}))?/gi;
+      let match;
+      while ((match = regex.exec(dateStr)) !== null) {
+        let year = match[3] || new Date().getFullYear();
+        let month = monthMap[match[2].toLowerCase()];
+        let day = match[1].padStart(2, '0');
+        let isoStr = `${year}-${month}-${day}`;
+        let ts = new Date(`${year}-${month}-${day}T00:00:00`).getTime();
+        if (ts > maxTimestamp) {
+          maxTimestamp = ts;
+          maxDate = isoStr;
+        }
+      }
+    }
+
+    // 1. Soportar la nueva UI de Zoho Desk V2 (elementos explícitos de tiempo)
+    const v2Els = document.querySelectorAll('[data-id="commonTime"], [data-test-id="commonTime"], [class*="usertime" i], time, .mail-time');
+    for (let el of v2Els) {
+      parseAndCompare(el.getAttribute("data-title"));
+      parseAndCompare(el.getAttribute("aria-label"));
+      parseAndCompare(el.innerText);
+    }
+    if (maxDate) return maxDate;
+
+    // 2. Buscar tooltips globales que parezcan fechas
+    const titleEls = document.querySelectorAll('[title], [data-title], [data-tooltip]');
+    for (let el of titleEls) {
+      let t = el.title || el.getAttribute("data-title") || el.getAttribute("data-tooltip");
+      if (t && t.match(/(202\d|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|ene|abr|ago|dic)/i)) {
+        parseAndCompare(t);
+      }
+    }
+    if (maxDate) return maxDate;
+
+    // 3. Fallback iterando por hilos de conversación
+    const threadItems = Array.from(document.querySelectorAll('.ticket-thread, [class*="threadItem" i], [class*="thread-item" i], [class*="Conversation" i], [class*="Thread" i], [class*="reply-item" i], [class*="replyItem" i], .zgh-userMsg, [class*="userMsg" i], [data-test-id="containerComponent"]'))
+                             .filter(el => el.innerText && el.innerText.trim().length > 10);
+    
+    for (const thread of threadItems) {
+      let lines = thread.innerText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      let headerText = lines.slice(0, 3).join(" ");
+      parseAndCompare(headerText);
+      if (maxDate) return maxDate;
+    }
+    
+    return maxDate;
   }
 
   function extractConversation() {
@@ -837,20 +913,91 @@
       case "AUTO_FILL_FIELDS":
         autoFillTicketFields(data || {});
         break;
-      case "SEARCH_OC_MP":
-        searchOcInMercadoPublico(data?.oc);
+      case "REQUEST_LATEST_DATE":
+        postToSidebar({ type: "LATEST_DATE_RESULT", data: { date: extractLatestEmailDate(), rowIdx: data?.rowIdx } });
+        break;
+      case "SEARCH_OC_GLOBAL":
+        searchOcByDomain(data?.oc);
         break;
     }
   });
 
-  // ─── MERCADO PUBLICO SEARCH ────────────────────────────────────────────────
-  function searchOcInMercadoPublico(ocNumber) {
+  // ─── DOMAIN BASED SEARCH ───────────────────────────────────────────────────
+  function searchOcByDomain(ocNumber) {
     if (!ocNumber) return;
-    if (!window.location.href.includes("mercadopublico.cl")) {
-      postToSidebar({ type: "TOAST", data: { msg: "⚠ Sólo funciona en Mercado Público" } });
+    
+    if (window.location.href.includes("mercadopublico.cl")) {
+      searchOcInMercadoPublico(ocNumber);
+    } else if (window.location.href.includes("desk.zoho")) {
+      searchOcInZoho(ocNumber);
+    } else {
+      postToSidebar({ type: "TOAST", data: { msg: "⚠ Debes estar en Zoho Desk o Mercado Público" } });
+    }
+  }
+
+  // ─── ZOHO DESK SEARCH ──────────────────────────────────────────────────────
+  function searchOcInZoho(ocNumber) {
+    // Intentar encontrar el input de búsqueda global o cualquier input de búsqueda visible
+    const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="search"]'));
+    let searchInput = inputs.find(i => {
+      const ph = (i.placeholder || "").toLowerCase();
+      const id = (i.id || "").toLowerCase();
+      const isVisible = i.offsetWidth > 0 && i.offsetHeight > 0;
+      return isVisible && (ph.includes("buscar") || ph.includes("search") || id.includes("search") || id.includes("buscar"));
+    });
+
+    if (!searchInput) {
+      // Buscar botón por aria-label, title, tooltip o clase
+      const btns = Array.from(document.querySelectorAll('button, div, span, a, svg')).filter(el => {
+        if (el.offsetWidth === 0 && el.tagName !== 'svg') return false;
+        const txt = (el.title || el.getAttribute('aria-label') || el.getAttribute('data-tooltip') || "").toLowerCase();
+        return txt.includes('buscar (/)') || txt.includes('search (/)');
+      });
+      
+      const searchIcon = btns[0] || document.querySelector('.GlobalSearch, #HeadSearch, [class*="search-icon"], [id*="search-icon"]');
+
+      if (searchIcon && typeof searchIcon.click === 'function') {
+        searchIcon.click();
+      } else {
+        // Fallback: simular la tecla '/'
+        if (document.activeElement) document.activeElement.blur();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: '/', code: 'Slash', keyCode: 191, bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent('keyup', { key: '/', code: 'Slash', keyCode: 191, bubbles: true }));
+      }
+      
+      postToSidebar({ type: "TOAST", data: { msg: "Abriendo buscador..." } });
+      setTimeout(() => searchOcInZoho(ocNumber), 700);
       return;
     }
-    
+
+    if (searchInput) {
+      searchInput.focus();
+      
+      // Setter nativo para frameworks (React/Ember)
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      if (nativeInputValueSetter) {
+        nativeInputValueSetter.call(searchInput, ocNumber);
+      } else {
+        searchInput.value = ocNumber;
+      }
+      
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+      
+      // Simular tecla Enter para ejecutar búsqueda (pequeño retraso para que el framework registre el input)
+      setTimeout(() => {
+        searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', code: 'Enter', keyCode: 13 }));
+        searchInput.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true, key: 'Enter', code: 'Enter', keyCode: 13 }));
+        searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter', code: 'Enter', keyCode: 13 }));
+        postToSidebar({ type: "TOAST", data: { msg: "Buscando en Zoho: " + ocNumber } });
+      }, 100);
+    } else {
+      postToSidebar({ type: "TOAST", data: { msg: "⚠ No se encontró el buscador de Zoho. Ábrelo manualmente." } });
+    }
+  }
+
+  // ─── MERCADO PUBLICO SEARCH ────────────────────────────────────────────────
+  function searchOcInMercadoPublico(ocNumber) {
     // 1. Buscar input directamente por su placeholder (como se ve en la captura)
     let inputEl = document.querySelector('input[placeholder*="697-475"]');
     let btnEl = null;
@@ -908,6 +1055,71 @@
       }
     } else {
       postToSidebar({ type: "TOAST", data: { msg: "⚠ No se encontró el campo 'Buscar por ID'" } });
+    }
+  }
+
+  function normalizeEstadoMP(raw) {
+    const s = String(raw).toLowerCase().trim();
+    // exact matches first
+    if (s === "aceptada") return "aceptada";
+    if (s === "cancelada") return "cancelada";
+    if (s === "rechazada") return "rechazada";
+    if (s === "recepción conforme" || s === "recepcion conforme") return "recepcion_conforme";
+    if (s === "cancelación solicitada" || s === "cancelacion solicitada") return "solicita_cancelacion";
+    if (s === "enviada a proveedor" || s === "pendiente") return "pendiente";
+    
+    // loose matches
+    if (s.includes("conforme")) return "recepcion_conforme";
+    if (s.includes("solicitada") || s.includes("solicitud de cancel")) return "solicita_cancelacion";
+    if (s.includes("en proceso")) return "pendiente";
+    
+    return null;
+  }
+
+  function scanMercadoPublicoResults() {
+    if (!window.location.href.includes("mercadopublico.cl")) return;
+    
+    const rows = document.querySelectorAll('tr');
+    let results = [];
+    
+    for (let r of rows) {
+      const text = r.textContent || "";
+      // Quick check if row has an OC
+      if (!text.match(/\d{3,8}-\d{1,6}-(?:AG|COT|LE|LP|SE|LR)[0-9]{2}/i)) continue;
+      
+      const cells = Array.from(r.querySelectorAll('td'));
+      if (cells.length < 3) continue;
+      
+      let ocText = "";
+      let estado = null;
+      let monto = "";
+      
+      for (let c of cells) {
+        const cellText = (c.textContent || "").trim();
+        
+        if (!ocText) {
+          const m = cellText.match(/\b(\d{3,8}-\d{1,6}-(?:AG|COT|LE|LP|SE|LR)[0-9]{2})\b/i);
+          if (m) ocText = m[1].toUpperCase();
+        }
+        
+        if (!estado) {
+          const mapped = normalizeEstadoMP(cellText);
+          if (mapped) estado = mapped;
+        }
+        
+        if (!monto) {
+          const m = cellText.match(/\$\s*[\d.]+/);
+          if (m) monto = m[0];
+        }
+      }
+      
+      if (ocText && (estado || monto)) {
+        results.push({ oc: ocText, estado, monto });
+      }
+    }
+    
+    if (results.length > 0) {
+      postToSidebar({ type: "UPDATE_OC_FROM_MP", data: results });
     }
   }
 
@@ -1010,7 +1222,8 @@
     const newId = extractTicketId();
     if (newId && newId !== "UNKNOWN" && newId !== currentTicketId) {
       currentTicketId = newId;
-      postToSidebar({ type: "TICKET_CHANGED", ticketId: newId });
+      const latestEmailDate = extractLatestEmailDate();
+      postToSidebar({ type: "TICKET_CHANGED", ticketId: newId, data: { latestEmailDate } });
     }
   }
 

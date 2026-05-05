@@ -129,9 +129,13 @@
       tblBody:     $("js-tbl-body"),
       tblCount:    $("js-tbl-count"),
       tblEmpty:    $("js-tbl-empty"),
+      tblName:     $("js-tbl-name"),
       btnTblClear: $("js-tbl-clear"),
       btnTblCopy:  $("js-tbl-copy"),
       btnTblCsv:   $("js-tbl-csv"),
+      btnTblGs:    $("js-tbl-gs"),
+      btnTblImport:$("js-tbl-import"),
+      fileImport:  $("js-tbl-file-import"),
     };
 
     if (!el.btnClose || !el.btnSettings || !el.toast) {
@@ -322,12 +326,25 @@
           chrome.storage.local.set({ ocTracking: [] }, () => loadTabla());
         }
       });
+      if (el.tblName) {
+        el.tblName.addEventListener("input", () => {
+          let val = el.tblName.value.trim();
+          chrome.storage.local.set({ ocTableName: val });
+        });
+      }
     }
     if (el.btnTblCopy) {
       el.btnTblCopy.addEventListener("click", copyTablaText);
     }
     if (el.btnTblCsv) {
-      el.btnTblCsv.addEventListener("click", exportTablaCsv);
+      el.btnTblCsv.addEventListener("click", () => exportTablaCsv(";"));
+    }
+    if (el.btnTblGs) {
+      el.btnTblGs.addEventListener("click", () => exportTablaCsv(","));
+    }
+    if (el.btnTblImport && el.fileImport) {
+      el.btnTblImport.addEventListener("click", () => el.fileImport.click());
+      el.fileImport.addEventListener("change", handleImportFile);
     }
 
     // Messages from content.js
@@ -342,6 +359,9 @@
         showView("loading");
         break;
       case "ANALYSIS_RESULT":
+        if (ticketData?.latestEmailDate) {
+          window.currentLatestEmailDate = ticketData.latestEmailDate;
+        }
         currentResult = data;
         currentTicket = ticketData;
         renderResult(data, ticketData);
@@ -352,13 +372,54 @@
         showView("error");
         break;
       case "TICKET_CHANGED":
+        if (data?.latestEmailDate) {
+          window.currentLatestEmailDate = data.latestEmailDate;
+        }
         onTicketChanged(ticketId || data?.ticketId);
+        break;
+      case "LATEST_DATE_RESULT":
+        if (!data?.date) {
+           showToast("⚠ No se pudo extraer la fecha de este ticket");
+           return;
+        }
+        window.currentLatestEmailDate = data.date;
+        
+        if (typeof data.rowIdx === 'number') {
+          if (ocRows[data.rowIdx]) {
+            ocRows[data.rowIdx].ultimo_correo = data.date;
+            saveTabla();
+            renderTabla();
+            showToast("✓ Fecha (" + data.date + ") actualizada en la OC");
+          }
+        }
         break;
       case "INSERT_SUCCESS":
         showToast("✓ Texto insertado en el editor de Zoho");
         break;
       case "INSERT_FALLBACK":
         showToast(message || "✓ Copiado al portapapeles");
+        break;
+      case "UPDATE_OC_FROM_MP":
+        let updated = false;
+        (data || []).forEach(mpRes => {
+          let row = ocRows.find(r => r.oc.toUpperCase() === mpRes.oc.toUpperCase());
+          if (row) {
+            let changed = false;
+            if (mpRes.estado && row.mp !== mpRes.estado) {
+              row.mp = mpRes.estado;
+              changed = true;
+            }
+            if (mpRes.monto && row.monto !== mpRes.monto) {
+              row.monto = mpRes.monto;
+              changed = true;
+            }
+            if (changed) updated = true;
+          }
+        });
+        if (updated) {
+          saveTabla();
+          renderTabla();
+        }
         break;
       case "AUTO_FILL_RESULT": {
         const { filled = [], failed = [], saved } = data || {};
@@ -1045,7 +1106,7 @@
   }
 
   // ─── TABLA OC MODULE ───────────────────────────────────────────────────────
-  var TABLA_ESTADO_OC = [
+  var MP_ESTADO_OC = [
     { value: "pendiente",            label: "Pendiente" },
     { value: "aceptada",             label: "Aceptada" },
     { value: "recepcion_conforme",   label: "Recepción Conforme" },
@@ -1055,25 +1116,66 @@
     { value: "sin_info",             label: "Sin info" },
   ];
 
+  var TICKET_ESTADO_OC = [
+    { value: "sin_ticket", label: "Sin ticket" },
+    { value: "aceptado", label: "Aceptado" },
+    { value: "consulta_despacho", label: "Consulta despacho" },
+    { value: "reclamo_documento", label: "Reclamo documento" },
+    { value: "reclamo_pedido", label: "Reclamo pedido" },
+    { value: "reclamo_rotulado", label: "Reclamo rotulado" },
+    { value: "consulta", label: "Consulta" },
+    { value: "rechazada", label: "Rechazada" },
+    { value: "pide_nc", label: "Pide NC" },
+    { value: "solicita_cancelar", label: "Solicita cancelar" },
+    { value: "cancelada", label: "Cancelada" },
+    { value: "multa_amenaza", label: "Multa / amenaza" },
+    { value: "esperamos_respuesta", label: "Esperamos respuesta" },
+    { value: "cliente_espera_respuesta", label: "Cliente espera respuesta" }
+  ];
+
   var TABLA_DEFAULTS = {
-    estado_oc:       "pendiente",
-    mp:              "no",
-    ticket_desk:     "no",
-    cancelacion:     "no",
-    cliente_escribio: "no",
+    estado_oc:       "sin_ticket",
+    mp:              "sin_info",
+    ultima_comunicacion: "ninguna",
+    resolucion:      "sin_acciones",
     ultimo_correo:   "",
     observaciones:   "",
+    monto:           "",
   };
 
   let ocRows = []; // Array<{ oc, estado_oc, mp, ticket_desk, cancelacion, cliente_escribio, ultimo_correo, observaciones }>
 
   function loadTabla() {
-    chrome.storage.local.get(["ocTracking"], (res) => {
+    chrome.storage.local.get(["ocTracking", "ocTableName"], (res) => {
       if (chrome.runtime.lastError) return;
       ocRows = res.ocTracking || [];
+      if (el.tblName) {
+        el.tblName.value = res.ocTableName || "Tabla_OCs";
+      }
       // Migrar datos antiguos al nuevo nombre de estado
       ocRows.forEach(row => {
         if (row.estado_oc === "pide_cancelacion") row.estado_oc = "solicita_cancelacion";
+        if (row.mp === "no" || row.mp === "si") row.mp = "sin_info";
+        
+        // Migrar estado_oc a TICKET_ESTADO_OC
+        if (row.estado_oc === "aceptada") row.estado_oc = "aceptado";
+        if (row.estado_oc === "pendiente") row.estado_oc = "esperamos_respuesta";
+        if (row.estado_oc === "recepcion_conforme") row.estado_oc = "aceptado";
+        if (row.estado_oc === "solicita_cancelacion") row.estado_oc = "pide_nc";
+        if (row.estado_oc === "sin_info") row.estado_oc = "sin_ticket";
+
+        if (!TICKET_ESTADO_OC.some(e => e.value === row.estado_oc)) {
+           row.estado_oc = "sin_ticket";
+        }
+
+        // Migrar cliente_escribio a ultima_comunicacion
+        if (row.cliente_escribio !== undefined) {
+           if (row.cliente_escribio === "si") row.ultima_comunicacion = "de_ellos";
+           else row.ultima_comunicacion = "ninguna";
+           delete row.cliente_escribio;
+        }
+        if (!row.ultima_comunicacion) row.ultima_comunicacion = "ninguna";
+        if (!row.resolucion) row.resolucion = "sin_acciones";
       });
       renderTabla();
     });
@@ -1093,7 +1195,11 @@
     tokens.forEach(oc => {
       var norm = oc.toUpperCase();
       if (!ocRows.find(r => r.oc === norm)) {
-        ocRows.push(Object.assign({ oc: norm }, TABLA_DEFAULTS));
+        ocRows.unshift(Object.assign({ 
+          oc: norm, 
+          ...TABLA_DEFAULTS,
+          ultimo_correo: window.currentLatestEmailDate || ""
+        }));
         added++;
       }
     });
@@ -1123,7 +1229,7 @@
         var idx = Number(input.closest("tr").dataset.idx);
         var field = input.dataset.field;
         ocRows[idx][field] = input.value;
-        if (field === "estado_oc") applyEstadoClass(input, input.value);
+        if (field === "estado_oc" || field === "mp") applyEstadoClass(input, input.value);
         saveTabla();
       });
       input.addEventListener("input", () => {
@@ -1134,14 +1240,21 @@
       });
     });
 
-    // Bind OC click to search in Mercado Publico
-    el.tblBody.querySelectorAll(".tbl-oc-cell").forEach(cell => {
-      cell.classList.add("tbl-oc-clickable");
-      cell.title = "Buscar en Mercado Público";
+    // Bind OC click to search in Mercado Publico or Zoho
+    el.tblBody.querySelectorAll(".tbl-oc-clickable").forEach(cell => {
+      cell.title = "Buscar esta OC";
       cell.addEventListener("click", () => {
         var idx = Number(cell.closest("tr").dataset.idx);
         var oc = ocRows[idx].oc;
-        notifyContent({ type: "SEARCH_OC_MP", data: { oc } });
+        notifyContent({ type: "SEARCH_OC_GLOBAL", data: { oc } });
+      });
+    });
+
+    // Bind row date extraction
+    el.tblBody.querySelectorAll(".js-row-date").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        var idx = Number(btn.closest("tr").dataset.idx);
+        notifyContent({ type: "REQUEST_LATEST_DATE", data: { rowIdx: idx } });
       });
     });
 
@@ -1157,49 +1270,61 @@
   }
 
   function buildRow(row, idx) {
-    var estadoOpts = TABLA_ESTADO_OC.map(o =>
+    var estadoOpts = TICKET_ESTADO_OC.map(o =>
       `<option value="${o.value}"${row.estado_oc === o.value ? " selected" : ""}>${o.label}</option>`
     ).join("");
 
-    var yesNo = (val) =>
-      ["no","si"].map(v =>
-        `<option value="${v}"${row[val] === v ? " selected" : ""}>${v === "si" ? "Sí" : "No"}</option>`
-      ).join("");
-    var cancelOpts = ["no","si","por_confirmar"].map(v =>
-      `<option value="${v}"${row.cancelacion === v ? " selected" : ""}>` +
-      (v === "no" ? "No" : v === "si" ? "Sí" : "Por confirmar") +
-      "</option>"
-    ).join("");
-    var mailOpts = ["no","si","por_revisar"].map(v =>
-      `<option value="${v}"${row.cliente_escribio === v ? " selected" : ""}>` +
-      (v === "no" ? "No" : v === "si" ? "Sí" : "Por revisar") +
-      "</option>"
+    var mpOpts = MP_ESTADO_OC.map(o =>
+      `<option value="${o.value}"${row.mp === o.value ? " selected" : ""}>${o.label}</option>`
     ).join("");
 
-    var estadoClass = `estado-${row.estado_oc || "pendiente"}`;
+    var comOpts = ["ninguna", "de_nosotros", "de_ellos"].map(v => {
+      let lbl = v === "ninguna" ? "Ninguna" : (v === "de_nosotros" ? "De nosotros" : "De ellos");
+      return `<option value="${v}"${row.ultima_comunicacion === v ? " selected" : ""}>${lbl}</option>`;
+    }).join("");
+
+    var resOptsArray = [
+      { v: "sin_acciones", l: "Sin acciones" },
+      { v: "hay_respuesta", l: "Hay respuesta" },
+      { v: "reenvio_hoy", l: "Re envio HOY" },
+      { v: "reenvio_pasado", l: "Re enviado EN EL PASADO" },
+      { v: "esperamos_respuesta", l: "Esperamos respuesta" },
+      { v: "sin_respuesta", l: "Sin respuesta" }
+    ];
+    var resOpts = resOptsArray.map(o => 
+      `<option value="${o.v}"${row.resolucion === o.v ? " selected" : ""}>${o.l}</option>`
+    ).join("");
+
+    var estadoClass = `estado-${row.estado_oc || "sin_ticket"}`;
+    var mpClass = `estado-${row.mp || "sin_info"}`;
+    var comClass = `com-${row.ultima_comunicacion || "ninguna"}`;
+    var resClass = `res-${row.resolucion || "sin_acciones"}`;
 
     return `<tr class="tbl-tr" data-idx="${idx}">
-      <td class="tbl-td tbl-oc-cell">${esc(row.oc)}</td>
+      <td class="tbl-td tbl-oc-cell">
+        <div class="tbl-oc-clickable">${esc(row.oc)}</div>
+        <button class="btn-ghost-sm js-row-date" style="font-size:8px; padding:2px 4px; margin-top:4px; opacity:0.8; width:100%; border:1px dashed var(--border-a);" title="Extraer fecha del último correo">📅 Extraer Fecha</button>
+      </td>
       <td class="tbl-td">
         <select class="tbl-select ${estadoClass}" data-field="estado_oc">${estadoOpts}</select>
       </td>
       <td class="tbl-td">
-        <select class="tbl-select" data-field="mp"><option value="no"${row.mp==="no"?" selected":""}>No</option><option value="si"${row.mp==="si"?" selected":""}>Sí</option></select>
+        <select class="tbl-select ${mpClass}" data-field="mp">${mpOpts}</select>
       </td>
       <td class="tbl-td">
-        <select class="tbl-select" data-field="ticket_desk"><option value="no"${row.ticket_desk==="no"?" selected":""}>No</option><option value="si"${row.ticket_desk==="si"?" selected":""}>Sí</option></select>
+        <select class="tbl-select ${comClass}" data-field="ultima_comunicacion">${comOpts}</select>
       </td>
       <td class="tbl-td">
-        <select class="tbl-select" data-field="cancelacion">${cancelOpts}</select>
-      </td>
-      <td class="tbl-td">
-        <select class="tbl-select" data-field="cliente_escribio">${mailOpts}</select>
+        <select class="tbl-select ${resClass}" data-field="resolucion">${resOpts}</select>
       </td>
       <td class="tbl-td">
         <input class="tbl-date" type="date" data-field="ultimo_correo" value="${esc(row.ultimo_correo || "")}" />
       </td>
       <td class="tbl-td">
         <input class="tbl-text" type="text" data-field="observaciones" value="${esc(row.observaciones || "")}" placeholder="Comentario…" />
+      </td>
+      <td class="tbl-td">
+        <input class="tbl-text" style="width: 70px; text-align: right;" type="text" data-field="monto" value="${esc(row.monto || "")}" placeholder="$0" />
       </td>
       <td class="tbl-td">
         <button class="btn-tbl-del" title="Eliminar fila">✕</button>
@@ -1212,70 +1337,301 @@
     sel.classList.add(`estado-${val || "pendiente"}`);
   }
 
-  function copyTablaText() {
+  async function copyTablaText() {
     if (!ocRows.length) {
       showToast("⚠ Tabla vacía");
       return;
     }
-    let text = "";
+
+    let resLabels = {
+      "sin_acciones": "Sin acciones", "hay_respuesta": "Hay respuesta",
+      "reenvio_hoy": "Re envio HOY", "reenvio_pasado": "Re enviado EN EL PASADO",
+      "esperamos_respuesta": "Esperamos respuesta", "sin_respuesta": "Sin respuesta"
+    };
+
+    const getColors = (field, val) => {
+      let bg = "#f3f4f6", text = "#374151";
+      if (field === "estado_oc") {
+        if (val === "aceptado") { bg = "#06ffa5"; text = "#000000"; }
+        if (val === "consulta_despacho") { bg = "#3b82f6"; text = "#ffffff"; }
+        if (val === "reclamo_documento") { bg = "#f97316"; text = "#ffffff"; }
+        if (val === "reclamo_pedido") { bg = "#ef4444"; text = "#ffffff"; }
+        if (val === "reclamo_rotulado") { bg = "#ea580c"; text = "#ffffff"; }
+        if (val === "consulta") { bg = "#0ea5e9"; text = "#ffffff"; }
+        if (val === "rechazada") { bg = "#ff4757"; text = "#ffffff"; }
+        if (val === "pide_nc") { bg = "#eab308"; text = "#000000"; }
+        if (val === "solicita_cancelar") { bg = "#f59e0b"; text = "#ffffff"; }
+        if (val === "cancelada") { bg = "#dc2626"; text = "#ffffff"; }
+        if (val === "multa_amenaza") { bg = "#b91c1c"; text = "#ffffff"; }
+        if (val === "esperamos_respuesta") { bg = "#8b5cf6"; text = "#ffffff"; }
+        if (val === "cliente_espera_respuesta") { bg = "#d946ef"; text = "#ffffff"; }
+      }
+      if (field === "mp") {
+        if (val === "aceptada") { bg = "#06ffa5"; text = "#000000"; }
+        if (val === "recepcion_conforme") { bg = "#00d4ff"; text = "#000000"; }
+        if (val === "solicita_cancelacion") { bg = "#fbbf24"; text = "#000000"; }
+      }
+      if (field === "com") {
+        if (val === "de_nosotros") { bg = "#3b82f6"; text = "#ffffff"; }
+        if (val === "de_ellos") { bg = "#f97316"; text = "#ffffff"; }
+      }
+      if (field === "res") {
+        if (val === "hay_respuesta") { bg = "#06ffa5"; text = "#000000"; }
+        if (val === "reenvio_hoy") { bg = "#0ea5e9"; text = "#ffffff"; }
+        if (val === "reenvio_pasado") { bg = "#8b5cf6"; text = "#ffffff"; }
+        if (val === "esperamos_respuesta") { bg = "#eab308"; text = "#000000"; }
+        if (val === "sin_respuesta") { bg = "#ff4757"; text = "#ffffff"; }
+      }
+      return { bg, text };
+    };
+
+    let html = `<table style="border-collapse: collapse; font-family: sans-serif; font-size: 12px;">`;
+    html += `<tr>
+      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">OC</th>
+      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Ticket OC</th>
+      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">MP</th>
+      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Última com.</th>
+      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Resolución</th>
+      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Último correo</th>
+      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Observaciones</th>
+      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Monto</th>
+    </tr>`;
+
+    let tsv = "OC\tTicket OC\tMP\tÚltima comunicación\tResolución\tÚltimo correo\tObservaciones\tMonto\n";
+
     ocRows.forEach(row => {
-      let estado = TABLA_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
-      text += `*OC: ${row.oc}*\n`;
-      text += `Estado: ${estado}\n`;
-      text += `MP: ${row.mp === "si" ? "Sí" : "No"} | Desk: ${row.ticket_desk === "si" ? "Sí" : "No"} | Canc: ${row.cancelacion} | Mail: ${row.cliente_escribio}\n`;
-      if (row.ultimo_correo) text += `Últ. correo: ${row.ultimo_correo}\n`;
-      if (row.observaciones) text += `Obs: ${row.observaciones}\n`;
-      text += `\n`;
+      let estado = TICKET_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
+      let mpState = MP_ESTADO_OC.find(e => e.value === row.mp)?.label || row.mp;
+      let comStr = row.ultima_comunicacion === "de_nosotros" ? "De nosotros" : (row.ultima_comunicacion === "de_ellos" ? "De ellos" : "Ninguna");
+      let resStr = resLabels[row.resolucion] || "Sin acciones";
+
+      let cEst = getColors("estado_oc", row.estado_oc);
+      let cMp = getColors("mp", row.mp);
+      let cCom = getColors("com", row.ultima_comunicacion);
+      let cRes = getColors("res", row.resolucion);
+
+      html += `<tr>
+        <td style="border:1px solid #ccc; padding:6px;">${row.oc || ""}</td>
+        <td style="border:1px solid #ccc; padding:6px; background-color:${cEst.bg}; color:${cEst.text}; font-weight:bold;">${estado}</td>
+        <td style="border:1px solid #ccc; padding:6px; background-color:${cMp.bg}; color:${cMp.text}; font-weight:bold;">${mpState}</td>
+        <td style="border:1px solid #ccc; padding:6px; background-color:${cCom.bg}; color:${cCom.text}; font-weight:bold;">${comStr}</td>
+        <td style="border:1px solid #ccc; padding:6px; background-color:${cRes.bg}; color:${cRes.text}; font-weight:bold;">${resStr}</td>
+        <td style="border:1px solid #ccc; padding:6px;">${row.ultimo_correo || ""}</td>
+        <td style="border:1px solid #ccc; padding:6px;">${row.observaciones || ""}</td>
+        <td style="border:1px solid #ccc; padding:6px;">${row.monto || ""}</td>
+      </tr>`;
+
+      tsv += `${row.oc || ""}\t${estado}\t${mpState}\t${comStr}\t${resStr}\t${row.ultimo_correo || ""}\t${(row.observaciones || "").replace(/\n/g, ' ')}\t${row.monto || ""}\n`;
     });
-    
-    copyText(text.trim()).then(() => {
+
+    html += `</table>`;
+
+    try {
+      const clipboardItem = new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([tsv], { type: "text/plain" })
+      });
+      await navigator.clipboard.write([clipboardItem]);
       if (el.btnTblCopy) animateCopy(el.btnTblCopy);
-      showToast("✓ Info copiada al portapapeles");
-    });
+      showToast("✓ Tabla copiada con colores (pégala en Sheets)");
+    } catch (e) {
+      // Fallback
+      copyText(tsv.trim()).then(() => {
+        if (el.btnTblCopy) animateCopy(el.btnTblCopy);
+        showToast("✓ Copiado al portapapeles");
+      });
+    }
   }
 
-  function exportTablaCsv() {
+  function exportTablaCsv(separator) {
     if (!ocRows.length) {
       showToast("⚠ Tabla vacía");
       return;
     }
-    
-    let headers = ["OC", "Estado OC", "MP", "Ticket Desk", "Cancelacion", "Mando mail", "Ultimo correo", "Observaciones"];
-    let csvContent = "\uFEFF"; // BOM para Excel
-    csvContent += headers.join(";") + "\r\n";
-    
+
+    let resLabels = {
+      "sin_acciones": "Sin acciones", "hay_respuesta": "Hay respuesta",
+      "reenvio_hoy": "Re envio HOY", "reenvio_pasado": "Re enviado EN EL PASADO",
+      "esperamos_respuesta": "Esperamos respuesta", "sin_respuesta": "Sin respuesta"
+    };
+
+    const getColors = (field, val) => {
+      let bg = "#f3f4f6", text = "#374151";
+      if (field === "estado_oc") {
+        if (val === "aceptado") { bg = "#06ffa5"; text = "#000000"; }
+        if (val === "consulta_despacho") { bg = "#3b82f6"; text = "#ffffff"; }
+        if (val === "reclamo_documento") { bg = "#f97316"; text = "#ffffff"; }
+        if (val === "reclamo_pedido") { bg = "#ef4444"; text = "#ffffff"; }
+        if (val === "reclamo_rotulado") { bg = "#ea580c"; text = "#ffffff"; }
+        if (val === "consulta") { bg = "#0ea5e9"; text = "#ffffff"; }
+        if (val === "rechazada") { bg = "#ff4757"; text = "#ffffff"; }
+        if (val === "pide_nc") { bg = "#eab308"; text = "#000000"; }
+        if (val === "solicita_cancelar") { bg = "#f59e0b"; text = "#ffffff"; }
+        if (val === "cancelada") { bg = "#dc2626"; text = "#ffffff"; }
+        if (val === "multa_amenaza") { bg = "#b91c1c"; text = "#ffffff"; }
+        if (val === "esperamos_respuesta") { bg = "#8b5cf6"; text = "#ffffff"; }
+        if (val === "cliente_espera_respuesta") { bg = "#d946ef"; text = "#ffffff"; }
+      }
+      if (field === "mp") {
+        if (val === "aceptada") { bg = "#06ffa5"; text = "#000000"; }
+        if (val === "recepcion_conforme") { bg = "#00d4ff"; text = "#000000"; }
+        if (val === "solicita_cancelacion") { bg = "#fbbf24"; text = "#000000"; }
+      }
+      if (field === "com") {
+        if (val === "de_nosotros") { bg = "#3b82f6"; text = "#ffffff"; }
+        if (val === "de_ellos") { bg = "#f97316"; text = "#ffffff"; }
+      }
+      if (field === "res") {
+        if (val === "hay_respuesta") { bg = "#06ffa5"; text = "#000000"; }
+        if (val === "reenvio_hoy") { bg = "#0ea5e9"; text = "#ffffff"; }
+        if (val === "reenvio_pasado") { bg = "#8b5cf6"; text = "#ffffff"; }
+        if (val === "esperamos_respuesta") { bg = "#eab308"; text = "#000000"; }
+        if (val === "sin_respuesta") { bg = "#ff4757"; text = "#ffffff"; }
+      }
+      return { bg, text };
+    };
+
+    let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">`;
+    html += `<head><meta charset="utf-8"></head><body>`;
+    html += `<table border="1" style="border-collapse: collapse; font-family: sans-serif; font-size: 12px;">`;
+    html += `<tr>
+      <th style="background:#e5e7eb;">OC</th>
+      <th style="background:#e5e7eb;">Ticket OC</th>
+      <th style="background:#e5e7eb;">MP</th>
+      <th style="background:#e5e7eb;">Última com.</th>
+      <th style="background:#e5e7eb;">Resolución</th>
+      <th style="background:#e5e7eb;">Último correo</th>
+      <th style="background:#e5e7eb;">Observaciones</th>
+      <th style="background:#e5e7eb;">Monto</th>
+    </tr>`;
+
     ocRows.forEach(row => {
-      let estado = TABLA_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
-      let cols = [
-        row.oc,
-        estado,
-        row.mp === "si" ? "Sí" : "No",
-        row.ticket_desk === "si" ? "Sí" : "No",
-        row.cancelacion,
-        row.cliente_escribio,
-        row.ultimo_correo,
-        row.observaciones
-      ];
-      let rowStr = cols.map(c => {
-        let str = String(c || "").replace(/"/g, '""');
-        if (str.includes(";") || str.includes("\"") || str.includes("\n")) {
-          return `"${str}"`;
-        }
-        return str;
-      }).join(";");
-      csvContent += rowStr + "\r\n";
+      let estado = TICKET_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
+      let mpState = MP_ESTADO_OC.find(e => e.value === row.mp)?.label || row.mp;
+      let comStr = row.ultima_comunicacion === "de_nosotros" ? "De nosotros" : (row.ultima_comunicacion === "de_ellos" ? "De ellos" : "Ninguna");
+      let resStr = resLabels[row.resolucion] || "Sin acciones";
+
+      let cEst = getColors("estado_oc", row.estado_oc);
+      let cMp = getColors("mp", row.mp);
+      let cCom = getColors("com", row.ultima_comunicacion);
+      let cRes = getColors("res", row.resolucion);
+
+      html += `<tr>
+        <td>${row.oc || ""}</td>
+        <td style="background-color:${cEst.bg}; color:${cEst.text}; font-weight:bold;">${estado}</td>
+        <td style="background-color:${cMp.bg}; color:${cMp.text}; font-weight:bold;">${mpState}</td>
+        <td style="background-color:${cCom.bg}; color:${cCom.text}; font-weight:bold;">${comStr}</td>
+        <td style="background-color:${cRes.bg}; color:${cRes.text}; font-weight:bold;">${resStr}</td>
+        <td>${row.ultimo_correo || ""}</td>
+        <td>${row.observaciones || ""}</td>
+        <td>${row.monto || ""}</td>
+      </tr>`;
     });
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    const dateStr = new Date().toISOString().slice(0, 10);
-    link.setAttribute("download", `oc_tracking_${dateStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast("✓ Excel exportado");
+    html += `</table></body></html>`;
+
+    let tableName = el.tblName?.value?.trim() || "Tabla_OCs";
+    let dateStr = new Date().toISOString().split("T")[0];
+    let suffix = separator === ";" ? "Excel" : "GoogleSheets";
+    let filename = `${tableName.replace(/[^a-z0-9_-]/gi, '_')}_${dateStr}_${suffix}.xls`;
+
+    let blob = new Blob([html], { type: "application/vnd.ms-excel" });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast("✓ Archivo Excel exportado con colores");
+  }
+
+  function handleImportFile(e) {
+    let file = e.target.files[0];
+    if (!file) return;
+
+    let reader = new FileReader();
+    reader.onload = function(evt) {
+      let content = evt.target.result;
+      let newOcs = [];
+
+      function reverseRes(lbl) {
+        let map = {"sin acciones": "sin_acciones", "hay respuesta": "hay_respuesta", "re envio hoy": "reenvio_hoy", "re enviado en el pasado": "reenvio_pasado", "esperamos respuesta": "esperamos_respuesta", "sin respuesta": "sin_respuesta"};
+        return map[lbl.toLowerCase().trim()] || "sin_acciones";
+      }
+      function reverseCom(lbl) {
+        let map = {"de nosotros": "de_nosotros", "de ellos": "de_ellos", "ninguna": "ninguna"};
+        return map[lbl.toLowerCase().trim()] || "ninguna";
+      }
+
+      // Try HTML parser (.xls)
+      let parser = new DOMParser();
+      let doc = parser.parseFromString(content, "text/html");
+      let rows = doc.querySelectorAll("table tr");
+
+      if (rows && rows.length > 1) {
+        for (let i = 1; i < rows.length; i++) {
+          let tds = rows[i].querySelectorAll("td");
+          if (tds.length < 8) continue;
+
+          let oc = tds[0].innerText.trim();
+          if (!oc) continue;
+
+          let estadoLbl = tds[1].innerText.trim();
+          let mpLbl = tds[2].innerText.trim();
+          let comLbl = tds[3].innerText.trim();
+          let resLbl = tds[4].innerText.trim();
+
+          let estado = TICKET_ESTADO_OC.find(e => e.label.toLowerCase() === estadoLbl.toLowerCase())?.value || "sin_ticket";
+          let mp = MP_ESTADO_OC.find(e => e.label.toLowerCase() === mpLbl.toLowerCase())?.value || "sin_info";
+
+          newOcs.push({
+            oc: oc, estado_oc: estado, mp: mp, ultima_comunicacion: reverseCom(comLbl),
+            resolucion: reverseRes(resLbl), ultimo_correo: tds[5].innerText.trim(),
+            observaciones: tds[6].innerText.trim(), monto: tds[7].innerText.trim()
+          });
+        }
+      } else {
+        // Fallback: Try CSV
+        let lines = content.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length > 1) {
+           let separator = content.indexOf(";") > -1 ? ";" : ",";
+           for (let i = 1; i < lines.length; i++) {
+             // Basic regex split that handles quotes
+             let cols = lines[i].split(new RegExp(`${separator}(?=(?:(?:[^"]*"){2})*[^"]*$)`));
+             if (cols.length >= 8) {
+                cols = cols.map(c => c.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+                let oc = cols[0];
+                if (!oc) continue;
+
+                let estado = TICKET_ESTADO_OC.find(e => e.label.toLowerCase() === cols[1].toLowerCase())?.value || "sin_ticket";
+                let mp = MP_ESTADO_OC.find(e => e.label.toLowerCase() === cols[2].toLowerCase())?.value || "sin_info";
+                
+                newOcs.push({
+                  oc: oc, estado_oc: estado, mp: mp, ultima_comunicacion: reverseCom(cols[3]),
+                  resolucion: reverseRes(cols[4]), ultimo_correo: cols[5],
+                  observaciones: cols[6], monto: cols[7]
+                });
+             }
+           }
+        }
+      }
+
+      if (newOcs.length > 0) {
+        if (confirm(`Se encontraron ${newOcs.length} OCs en el archivo.\n¿Deseas reemplazar tu tabla actual con estos datos?`)) {
+          ocRows = newOcs;
+          saveTabla();
+          renderTabla();
+          showToast(`✓ Se importaron ${newOcs.length} OCs`);
+        }
+      } else {
+        showToast("⚠ No se pudieron extraer datos del archivo");
+      }
+      
+      el.fileImport.value = "";
+    };
+    reader.readAsText(file);
   }
 
   // ─── START ─────────────────────────────────────────────────────────────────

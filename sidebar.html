@@ -311,10 +311,15 @@
       <div class="sv hidden" id="sv-tabla">
         <!-- Toolbar superior -->
         <div class="tbl-toolbar">
-          <span class="tbl-toolbar-title">⊞ Tabla de OCs</span>
+          <div class="tbl-title-wrapper">
+            <span class="tbl-toolbar-icon">⊞</span>
+            <input type="text" id="js-tbl-name" class="tbl-name-input" placeholder="Nombre de tabla..." />
+          </div>
           <div class="tbl-toolbar-right">
+            <button class="btn-ghost-sm" id="js-tbl-import" title="Importar OCs desde archivo Excel/CSV">⬆ Importar</button>
             <button class="btn-ghost-sm" id="js-tbl-copy" title="Copiar info">⧉ Copiar</button>
-            <button class="btn-ghost-sm" id="js-tbl-csv" title="Exportar a Excel (CSV)">⬇ Excel</button>
+            <button class="btn-ghost-sm" id="js-tbl-csv" title="Exportar para Excel (separador ;)">⬇ Excel</button>
+            <button class="btn-ghost-sm" id="js-tbl-gs" title="Exportar para Google Sheets (separador ,)">⬇ G. Sheets</button>
             <span class="tbl-count" id="js-tbl-count">0 OCs</span>
             <button class="btn-danger-sm" id="js-tbl-clear" title="Limpiar todo">✕</button>
           </div>
@@ -340,13 +345,13 @@
             <thead>
               <tr>
                 <th class="tbl-th">OC</th>
-                <th class="tbl-th">Estado OC</th>
+                <th class="tbl-th">Ticket OC</th>
                 <th class="tbl-th">MP</th>
-                <th class="tbl-th">Ticket Desk</th>
-                <th class="tbl-th">Cancelación</th>
-                <th class="tbl-th">¿Mandó mail?</th>
+                <th class="tbl-th">Última com.</th>
+                <th class="tbl-th">¿Resolución?</th>
                 <th class="tbl-th">Último correo</th>
                 <th class="tbl-th">Obs.</th>
+                <th class="tbl-th">Monto</th>
                 <th class="tbl-th tbl-th-del"></th>
               </tr>
             </thead>
@@ -447,6 +452,7 @@
     <!-- Toast notification -->
     <div class="toast" id="js-toast"></div>
 
+    <input type="file" id="js-tbl-file-import" accept=".xls,.html,.csv" style="display:none;" />
     <script src="sidebar.js"></script>
   </body>
 </html>

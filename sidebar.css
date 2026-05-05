@@ -1478,6 +1478,11 @@ body::after {
   text-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
 }
 .tbl-toolbar-right { display: flex; align-items: center; gap: 10px; }
+.tbl-title-wrapper { display: flex; align-items: center; gap: 6px; flex: 1; }
+.tbl-toolbar-icon { color: var(--purple); font-size: 14px; text-shadow: 0 0 10px rgba(168, 85, 247, 0.3); }
+.tbl-name-input { background: transparent; border: none; border-bottom: 1px dashed var(--border-a); color: var(--t1); font-size: 12px; font-weight: 600; padding: 2px 4px; outline: none; transition: all 0.2s; width: 160px; font-family: inherit; }
+.tbl-name-input:focus { border-bottom-color: var(--purple); background: rgba(255,255,255,0.03); }
+.tbl-name-input::placeholder { color: var(--t3); font-weight: 400; font-size: 10px; }
 .tbl-count { font-size: 9px; font-weight: 700; color: var(--t3); letter-spacing: 1px; text-transform: uppercase; }
 
 /* ── IMPORT ZONE ─────────────────────────────────────────────────────────── */
@@ -1539,13 +1544,41 @@ body::after {
   color: var(--t1); font-family: var(--mono); font-size: 9.5px; cursor: pointer; transition: border-color var(--tr);
 }
 .tbl-select:focus { outline: none; border-color: var(--border-a); }
+.tbl-select.estado-sin_ticket { color: var(--t3); }
+.tbl-select.estado-aceptado { color: #06ffa5; border-color: rgba(6,255,165,0.25); }
+.tbl-select.estado-consulta_despacho { color: #3b82f6; border-color: rgba(59,130,246,0.25); }
+.tbl-select.estado-reclamo_documento { color: #f97316; border-color: rgba(249,115,22,0.25); }
+.tbl-select.estado-reclamo_pedido { color: #ef4444; border-color: rgba(239,68,68,0.25); }
+.tbl-select.estado-reclamo_rotulado { color: #ea580c; border-color: rgba(234,88,12,0.25); }
+.tbl-select.estado-consulta { color: #0ea5e9; border-color: rgba(14,165,233,0.25); }
+.tbl-select.estado-rechazada { color: #ff4757; border-color: rgba(255,71,87,0.25); }
+.tbl-select.estado-pide_nc { color: #eab308; border-color: rgba(234,179,8,0.25); }
+.tbl-select.estado-solicita_cancelar { color: #f59e0b; border-color: rgba(245,158,11,0.25); }
+.tbl-select.estado-cancelada { color: #dc2626; border-color: rgba(220,38,38,0.25); }
+.tbl-select.estado-multa_amenaza { color: #b91c1c; border-color: rgba(185,28,28,0.5); font-weight: bold; }
+.tbl-select.estado-esperamos_respuesta { color: #8b5cf6; border-color: rgba(139,92,246,0.25); }
+.tbl-select.estado-cliente_espera_respuesta { color: #d946ef; border-color: rgba(217,70,239,0.25); }
+
+/* Estados MP */
 .tbl-select.estado-pendiente       { color: #9ba8bc; }
 .tbl-select.estado-aceptada        { color: #06ffa5; border-color: rgba(6,255,165,0.25); }
 .tbl-select.estado-recepcion_conforme { color: #00d4ff; border-color: rgba(0,212,255,0.25); }
-.tbl-select.estado-cancelada       { color: #ff4757; border-color: rgba(255,71,87,0.25); }
 .tbl-select.estado-solicita_cancelacion { color: #fbbf24; border-color: rgba(251,191,36,0.25); }
-.tbl-select.estado-rechazada       { color: #6c8090; }
 .tbl-select.estado-sin_info        { color: var(--t3); }
+
+/* Comunicación */
+.tbl-select.com-ninguna { color: var(--t3); }
+.tbl-select.com-de_nosotros { color: #3b82f6; border-color: rgba(59,130,246,0.25); }
+.tbl-select.com-de_ellos { color: #f97316; border-color: rgba(249,115,22,0.25); }
+
+/* Resolución */
+.tbl-select.res-sin_acciones { color: var(--t3); }
+.tbl-select.res-hay_respuesta { color: #06ffa5; border-color: rgba(6,255,165,0.25); }
+.tbl-select.res-reenvio_hoy { color: #0ea5e9; border-color: rgba(14,165,233,0.25); }
+.tbl-select.res-reenvio_pasado { color: #8b5cf6; border-color: rgba(139,92,246,0.25); }
+.tbl-select.res-esperamos_respuesta { color: #eab308; border-color: rgba(234,179,8,0.25); }
+.tbl-select.res-sin_respuesta { color: #ff4757; border-color: rgba(255,71,87,0.25); }
+
 .tbl-date, .tbl-text {
   width: 100%; min-width: 70px; padding: 3px 6px;
   background: var(--bg5); border: 1px solid var(--border); border-radius: 4px;
