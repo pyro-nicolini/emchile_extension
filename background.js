@@ -277,7 +277,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                   const selection = win.getSelection();
                   const range = doc.createRange();
                   range.selectNodeContents(editor);
-                  range.collapse(false);
+                  range.collapse(true);
                   selection.removeAllRanges();
                   selection.addRange(range);
                   if (doc.execCommand("insertText", false, txt)) {
@@ -1332,19 +1332,9 @@ function ensureCustomPromptReplyQuality(
   ticketData,
 ) {
   const reply = String(rawReply || "").trim();
-  if (!reply) return reply;
-
-  const lines = reply
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const sentenceCount = reply
-    .split(/[\.!?]+/)
-    .map((s) => s.trim())
-    .filter(Boolean).length;
-
-  const looksTooShort = reply.length < 90 || lines.length <= 1 || sentenceCount < 2;
-  if (!looksTooShort) return reply;
+  // Solo activar fallback si la respuesta está completamente vacía.
+  // El AI recibió la instrucción completa — respetar su output.
+  if (reply.length > 0) return reply;
 
   const customer =
     ticketData?.customerName && ticketData.customerName !== "No detectado"
@@ -1355,8 +1345,7 @@ function ensureCustomPromptReplyQuality(
     ? ` para la${ticketData.ocNumbers.length > 1 ? "s" : ""} OC ${ticketData.ocNumbers.join(", ")}`
     : "";
 
-  const intent = buildAgentClientContextSentence(userPrompt || "");
-  const context = intent || String(userPrompt || "").trim();
+  const context = String(userPrompt || "").trim();
   const persistent = buildAgentClientContextSentence(persistentContext || "");
 
   return [
@@ -1501,7 +1490,7 @@ Tu función es analizar tickets y generar tres salidas estructuradas: respuesta 
 • NUNCA inventes datos que no estén en el ticket
 • NUNCA uses tecnicismos internos en la respuesta al cliente
 • Mantén estricta separación de salidas: clientReply solo para cliente, internalMessage solo para comunicación interna
-• La respuesta al cliente SIEMPRE termina firmada como "Equipo EMChile"
+• La respuesta al cliente (clientReply) SIEMPRE debe tener la estructura completa de un correo: saludo inicial ("Estimado/a [Nombre],"), desarrollo y despedida ("Saludos cordiales,\\nEquipo EMChile")
 • Si el caso es ambiguo, incompleto o sensible → establece shouldReply = false
 
 ══════════════════════════════════════════
@@ -1588,6 +1577,30 @@ function buildUserPrompt(ticketData) {
     lines.push(`FECHA CREACIÓN: ${ticketData.createdAt}`);
   }
 
+  // ── Contexto del agente para la respuesta al cliente (PRIORIDAD ALTA) ─────
+  // Se inyecta ANTES de la conversación para que el AI lo use como instrucción principal.
+  const clientCtx = String(ticketData?.responseContext?.client || "").trim();
+  const internalCtx = String(ticketData?.responseContext?.internal || "").trim();
+
+  if (clientCtx) {
+    lines.push("");
+    lines.push("══════════════════════════════════════");
+    lines.push("INSTRUCCIÓN DEL AGENTE PARA clientReply (PRIORIDAD MÁXIMA):");
+    lines.push(clientCtx);
+    lines.push("IMPORTANTE: Integra esta instrucción de forma natural en clientReply.");
+    lines.push("No la copies literalmente ni la pegues como bloque separado.");
+    lines.push("══════════════════════════════════════");
+  }
+
+  if (internalCtx) {
+    lines.push("");
+    lines.push("══════════════════════════════════════");
+    lines.push("INSTRUCCIÓN DEL AGENTE PARA internalMessage (PRIORIDAD MÁXIMA):");
+    lines.push(internalCtx);
+    lines.push("IMPORTANTE: Integra esta instrucción en internalMessage como bullet relevante.");
+    lines.push("══════════════════════════════════════");
+  }
+
   // Explicitly list extracted OC numbers so the AI always sees them
   if (ticketData.ocNumbers && ticketData.ocNumbers.length) {
     lines.push("");
@@ -1625,7 +1638,7 @@ function buildUserPrompt(ticketData) {
 
   lines.push(
     "",
-    "Genera el análisis siguiendo estrictamente las reglas EMChile.",
+    "Genera el análisis siguiendo estrictamente las reglas EMChile y las instrucciones del agente indicadas arriba.",
   );
   return lines.join("\n");
 }
@@ -1722,24 +1735,10 @@ function normalizeAnalysis(ticketData, result) {
 function ensureClientReplyCompleteness(clientReply, ticketData) {
   const text = String(clientReply || "").trim();
   const normalized = normalizeForComparison(text);
-  const sentenceCount = text
-    .split(/[\.!?]+/)
-    .map((s) => s.trim())
-    .filter(Boolean).length;
-  const lineCount = text
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean).length;
 
-  const looksTooShort =
-    text.length < 80 ||
-    sentenceCount < 2 ||
-    lineCount <= 1 ||
-    /^estimad[oa]/i.test(text) ||
-    /^hola\b/i.test(text) ||
-    normalized === "";
-
-  if (!looksTooShort) return text;
+  // Solo activar el fallback si la respuesta está COMPLETAMENTE vacía o es claramente inválida.
+  // NO marcar como "corta" una respuesta que comienza con saludo — eso es comportamiento correcto del AI.
+  if (normalized.length > 0) return text;
 
   const customer =
     ticketData?.customerName && ticketData.customerName !== "No detectado"
@@ -1764,6 +1763,9 @@ function ensureClientReplyCompleteness(clientReply, ticketData) {
 }
 
 function ensureAgentClientContext(clientReply, ticketData) {
+  // El contexto ya fue pasado directamente al AI como instrucción en buildUserPrompt.
+  // Esta función ahora solo actúa como red de seguridad: si el AI ignoró completamente
+  // el contexto (no hay ninguna palabra del contexto en la respuesta), lo añade brevemente.
   const clientContext = String(ticketData?.responseContext?.client || "").trim();
   if (!clientContext) return String(clientReply || "").trim();
 
@@ -1772,18 +1774,17 @@ function ensureAgentClientContext(clientReply, ticketData) {
 
   const replyNorm = normalizeForComparison(reply);
   const ctxNorm = normalizeForComparison(clientContext);
-  const contextSentence = buildAgentClientContextSentence(clientContext);
-  const ctxSentenceNorm = normalizeForComparison(contextSentence);
-  if (
-    (ctxNorm && replyNorm.includes(ctxNorm)) ||
-    (ctxSentenceNorm && replyNorm.includes(ctxSentenceNorm))
-  ) {
-    return reply;
-  }
 
+  // Si la respuesta ya tiene al menos el 40% de las palabras clave del contexto, confiar en el AI.
+  const ctxWords = ctxNorm.split(" ").filter((w) => w.length > 4);
+  const matchedWords = ctxWords.filter((w) => replyNorm.includes(w)).length;
+  const coverageRatio = ctxWords.length > 0 ? matchedWords / ctxWords.length : 1;
+  if (coverageRatio >= 0.4) return reply;
+
+  // Fallback: inyectar solo si el contexto fue completamente ignorado
+  const contextSentence = buildAgentClientContextSentence(clientContext);
   const lines = reply.split("\n");
 
-  // Try to place context right after greeting block for better readability.
   let insertAt = 0;
   while (insertAt < lines.length && !lines[insertAt].trim()) insertAt += 1;
   if (insertAt < lines.length) insertAt += 1;

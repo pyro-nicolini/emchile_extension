@@ -149,6 +149,16 @@
     loadTabla();
     showView("idle");
     notifyContent({ type: "SIDEBAR_READY" });
+
+    // Enlazar checkboxes del header para ocultar/mostrar columnas
+    document.querySelectorAll(".col-checker").forEach(chk => {
+      chk.addEventListener("change", (e) => {
+        let colIdx = parseInt(e.target.dataset.col);
+        visibleCols[colIdx] = e.target.checked;
+        chrome.storage.local.set({ visibleCols });
+        applyColVisibility();
+      });
+    });
   }
   // ─── EVENT BINDING ─────────────────────────────────────────────────────────
   function bindUI() {
@@ -1144,11 +1154,13 @@
   };
 
   let ocRows = []; // Array<{ oc, estado_oc, mp, ticket_desk, cancelacion, cliente_escribio, ultimo_correo, observaciones }>
+  let visibleCols = [true, true, true, true, true, true, true, true];
 
   function loadTabla() {
-    chrome.storage.local.get(["ocTracking", "ocTableName"], (res) => {
+    chrome.storage.local.get(["ocTracking", "ocTableName", "visibleCols"], (res) => {
       if (chrome.runtime.lastError) return;
       ocRows = res.ocTracking || [];
+      if (res.visibleCols) visibleCols = res.visibleCols;
       if (el.tblName) {
         el.tblName.value = res.ocTableName || "Tabla_OCs";
       }
@@ -1266,6 +1278,29 @@
         saveTabla();
         renderTabla();
       });
+    });
+
+    applyColVisibility();
+  }
+
+  function applyColVisibility() {
+    let thead = document.querySelector("#js-oc-table thead");
+    if (thead) {
+      thead.querySelectorAll("th.tbl-th[data-col]").forEach(th => {
+        let colIdx = parseInt(th.dataset.col);
+        if (visibleCols[colIdx]) {
+          th.classList.remove("excluded-col");
+        } else {
+          th.classList.add("excluded-col");
+        }
+        let checkbox = th.querySelector(".col-checker");
+        if (checkbox) checkbox.checked = visibleCols[colIdx];
+      });
+    }
+
+    // Asegurarse de que ninguna celda tenga la clase hidden-col si quedó pegada antes
+    el.tblBody.querySelectorAll("tr").forEach(tr => {
+      tr.querySelectorAll("td.hidden-col").forEach(td => td.classList.remove("hidden-col"));
     });
   }
 
@@ -1385,19 +1420,19 @@
       return { bg, text };
     };
 
-    let html = `<table style="border-collapse: collapse; font-family: sans-serif; font-size: 12px;">`;
-    html += `<tr>
-      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">OC</th>
-      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Ticket OC</th>
-      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">MP</th>
-      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Última com.</th>
-      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Resolución</th>
-      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Último correo</th>
-      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Observaciones</th>
-      <th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">Monto</th>
-    </tr>`;
+    let thsHtml = [
+      "OC", "Ticket OC", "MP", "Última com.", "Resolución", "Último correo", "Observaciones", "Monto"
+    ].filter((_, i) => visibleCols[i])
+     .map(name => `<th style="border:1px solid #ccc; padding:6px; background:#e5e7eb;">${name}</th>`)
+     .join("");
 
-    let tsv = "OC\tTicket OC\tMP\tÚltima comunicación\tResolución\tÚltimo correo\tObservaciones\tMonto\n";
+    let html = `<table style="border-collapse: collapse; font-family: sans-serif; font-size: 12px;">`;
+    html += `<tr>${thsHtml}</tr>`;
+
+    let tsvHeaders = [
+      "OC", "Ticket OC", "MP", "Última comunicación", "Resolución", "Último correo", "Observaciones", "Monto"
+    ].filter((_, i) => visibleCols[i]).join("\t") + "\n";
+    let tsv = tsvHeaders;
 
     ocRows.forEach(row => {
       let estado = TICKET_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
@@ -1410,18 +1445,30 @@
       let cCom = getColors("com", row.ultima_comunicacion);
       let cRes = getColors("res", row.resolucion);
 
-      html += `<tr>
-        <td style="border:1px solid #ccc; padding:6px;">${row.oc || ""}</td>
-        <td style="border:1px solid #ccc; padding:6px; background-color:${cEst.bg}; color:${cEst.text}; font-weight:bold;">${estado}</td>
-        <td style="border:1px solid #ccc; padding:6px; background-color:${cMp.bg}; color:${cMp.text}; font-weight:bold;">${mpState}</td>
-        <td style="border:1px solid #ccc; padding:6px; background-color:${cCom.bg}; color:${cCom.text}; font-weight:bold;">${comStr}</td>
-        <td style="border:1px solid #ccc; padding:6px; background-color:${cRes.bg}; color:${cRes.text}; font-weight:bold;">${resStr}</td>
-        <td style="border:1px solid #ccc; padding:6px;">${row.ultimo_correo || ""}</td>
-        <td style="border:1px solid #ccc; padding:6px;">${row.observaciones || ""}</td>
-        <td style="border:1px solid #ccc; padding:6px;">${row.monto || ""}</td>
-      </tr>`;
+      let cells = [
+        { text: row.oc || "" },
+        { text: estado, bg: cEst.bg, color: cEst.text, bold: true },
+        { text: mpState, bg: cMp.bg, color: cMp.text, bold: true },
+        { text: comStr, bg: cCom.bg, color: cCom.text, bold: true },
+        { text: resStr, bg: cRes.bg, color: cRes.text, bold: true },
+        { text: row.ultimo_correo || "" },
+        { text: row.observaciones || "" },
+        { text: row.monto || "" }
+      ];
 
-      tsv += `${row.oc || ""}\t${estado}\t${mpState}\t${comStr}\t${resStr}\t${row.ultimo_correo || ""}\t${(row.observaciones || "").replace(/\n/g, ' ')}\t${row.monto || ""}\n`;
+      html += `<tr>` + cells.filter((_, i) => visibleCols[i]).map(c => {
+        let style = "border:1px solid #ccc; padding:6px;";
+        if (c.bg) style += ` background-color:${c.bg};`;
+        if (c.color) style += ` color:${c.color};`;
+        if (c.bold) style += ` font-weight:bold;`;
+        return `<td style="${style}">${c.text}</td>`;
+      }).join("") + `</tr>`;
+
+      let tsvCells = [
+        row.oc || "", estado, mpState, comStr, resStr, row.ultimo_correo || "",
+        (row.observaciones || "").replace(/\n/g, ' '), row.monto || ""
+      ];
+      tsv += tsvCells.filter((_, i) => visibleCols[i]).join("\t") + "\n";
     });
 
     html += `</table>`;
@@ -1491,19 +1538,16 @@
       return { bg, text };
     };
 
+    let thsHtml = [
+      "OC", "Ticket OC", "MP", "Última com.", "Resolución", "Último correo", "Observaciones", "Monto"
+    ].filter((_, i) => visibleCols[i])
+     .map(name => `<th style="background:#e5e7eb;">${name}</th>`)
+     .join("");
+
     let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">`;
     html += `<head><meta charset="utf-8"></head><body>`;
     html += `<table border="1" style="border-collapse: collapse; font-family: sans-serif; font-size: 12px;">`;
-    html += `<tr>
-      <th style="background:#e5e7eb;">OC</th>
-      <th style="background:#e5e7eb;">Ticket OC</th>
-      <th style="background:#e5e7eb;">MP</th>
-      <th style="background:#e5e7eb;">Última com.</th>
-      <th style="background:#e5e7eb;">Resolución</th>
-      <th style="background:#e5e7eb;">Último correo</th>
-      <th style="background:#e5e7eb;">Observaciones</th>
-      <th style="background:#e5e7eb;">Monto</th>
-    </tr>`;
+    html += `<tr>${thsHtml}</tr>`;
 
     ocRows.forEach(row => {
       let estado = TICKET_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
@@ -1516,16 +1560,24 @@
       let cCom = getColors("com", row.ultima_comunicacion);
       let cRes = getColors("res", row.resolucion);
 
-      html += `<tr>
-        <td>${row.oc || ""}</td>
-        <td style="background-color:${cEst.bg}; color:${cEst.text}; font-weight:bold;">${estado}</td>
-        <td style="background-color:${cMp.bg}; color:${cMp.text}; font-weight:bold;">${mpState}</td>
-        <td style="background-color:${cCom.bg}; color:${cCom.text}; font-weight:bold;">${comStr}</td>
-        <td style="background-color:${cRes.bg}; color:${cRes.text}; font-weight:bold;">${resStr}</td>
-        <td>${row.ultimo_correo || ""}</td>
-        <td>${row.observaciones || ""}</td>
-        <td>${row.monto || ""}</td>
-      </tr>`;
+      let cells = [
+        { text: row.oc || "" },
+        { text: estado, bg: cEst.bg, color: cEst.text, bold: true },
+        { text: mpState, bg: cMp.bg, color: cMp.text, bold: true },
+        { text: comStr, bg: cCom.bg, color: cCom.text, bold: true },
+        { text: resStr, bg: cRes.bg, color: cRes.text, bold: true },
+        { text: row.ultimo_correo || "" },
+        { text: row.observaciones || "" },
+        { text: row.monto || "" }
+      ];
+
+      html += `<tr>` + cells.filter((_, i) => visibleCols[i]).map(c => {
+        let style = "";
+        if (c.bg) style += ` background-color:${c.bg};`;
+        if (c.color) style += ` color:${c.color};`;
+        if (c.bold) style += ` font-weight:bold;`;
+        return `<td${style ? ` style="${style.trim()}"` : ""}>${c.text}</td>`;
+      }).join("") + `</tr>`;
     });
 
     html += `</table></body></html>`;
