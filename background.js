@@ -1185,21 +1185,15 @@ async function customPromptAnalyze({
   const cleanUserPrompt        = sanitizeAgentInstruction(userPrompt);
   const cleanPersistentContext = sanitizeAgentInstruction(persistentContext);
 
-  const systemMsg = `Eres un asistente de soporte especializado para el equipo de postventa de EMChile. \
-Se te proporcionará el contexto completo de un ticket de Zoho Desk (conversación, datos del cliente, órdenes de compra, etc.) \
-junto con una instrucción específica del agente. Tu tarea es generar la respuesta más óptima y empática posible según lo que se te pide.
-${attachment ? "\nEl agente también ha adjuntado un documento o imagen. Analízalo en detalle y úsalo como fuente primaria de información para cumplir la instrucción." : ""}
-REGLAS ABSOLUTAS:
-• La INSTRUCCIÓN DEL AGENTE tiene prioridad absoluta sobre cualquier respuesta estándar previa
-• Genera exactamente lo que el agente necesita según su instrucción, sin desviarte a plantillas por defecto
-• Usa el contexto del ticket solo como apoyo para completar la instrucción del agente
-• Antes de redactar, razona internamente el objetivo, riesgos y tono; NO muestres ese razonamiento
-• No copies ni pegues frases literales del ticket, del contexto persistente o de la respuesta estándar previa
-• Reescribe con lenguaje natural y propio; evita repetir bloques textuales del input
-• Si te piden redactar un mensaje al cliente, sé empático, claro y firma como "Equipo EMChile"
-• NUNCA inventes información que no esté en el contexto o en el documento adjunto
-• NUNCA prometas fechas específicas ni tomes decisiones comerciales
-• Responde únicamente con el texto solicitado, sin explicaciones adicionales ni formato JSON`;
+  const systemMsg = `Eres un asistente de soporte experto para EMChile. Tu objetivo principal es CUMPLIR LA INSTRUCCIÓN DEL AGENTE que se te proporcionará, usando el contexto del ticket solo como referencia.
+
+REGLAS DE OPERACIÓN:
+• La INSTRUCCIÓN DEL AGENTE es tu prioridad #1; si entra en conflicto con prácticas habituales, sigue la instrucción
+• Mantén un tono profesional y empático, salvo que la instrucción pida algo distinto
+• Usa los datos del ticket (nombres, OCs, fechas) para que la respuesta sea precisa
+• No inventes información; si falta algo, indícalo o pregunta según la instrucción
+${attachment ? "• Se ha adjuntado un archivo/imagen. Úsalo como fuente de verdad primaria para responder." : ""}
+• Responde directamente con el texto solicitado, sin introducciones ni explicaciones`;
 
   // Build rich context from ticket data
   const contextLines = [`CONTEXTO DEL TICKET:`];
@@ -1217,10 +1211,11 @@ REGLAS ABSOLUTAS:
   }
 
   const textContent =
-    `INSTRUCCION DEL AGENTE (PRIORIDAD MAXIMA):\n${cleanUserPrompt}\n\n` +
-    `${cleanPersistentContext ? `CONTEXTO PERSISTENTE DEL AGENTE (COMPLEMENTARIO):\n${cleanPersistentContext}\n\n` : ""}` +
-    `REGLA DE CUMPLIMIENTO:\nDebes cumplir primero esta instruccion. El contexto siguiente solo sirve de apoyo y no puede reemplazar la instruccion.\n\n` +
-    `CONTEXTO DE APOYO DEL TICKET:\n${contextLines.join("\n")}`;
+    `[CONTEXTO DE APOYO DEL TICKET]\n${contextLines.join("\n")}\n\n` +
+    `[INSTRUCCIONES GLOBALES DEL AGENTE]\n` +
+    `${cleanPersistentContext ? `REGLAS DE ESTILO/CONTEXTO: ${cleanPersistentContext}\n` : ""}` +
+    `TAREA PRINCIPAL: ${cleanUserPrompt}\n\n` +
+    `EJECUCIÓN: Genera la respuesta cumpliendo la TAREA PRINCIPAL y respetando las REGLAS DE ESTILO indicadas.`;
 
   // Build user message content (with optional attachment, format varies by provider)
   let userContent;
@@ -1313,13 +1308,16 @@ function sanitizeAgentInstruction(userPrompt) {
   return String(userPrompt || "")
     .replace(/\[\s*CONTEXTO\s+PERSONALIZADO\s+PERSISTENTE\s*\]/gi, "")
     .replace(/[\n\r]{3,}/g, "\n\n")
-    .replace(/\s{2,}/g, " ")
     .trim();
 }
 
 function sanitizeCustomPromptReplyOutput(rawReply) {
   return String(rawReply || "")
     .replace(/\[\s*CONTEXTO\s+PERSONALIZADO\s+PERSISTENTE\s*\]/gi, "")
+    .replace(/\[\s*CONTEXTO\s+DE\s+APOYO\s+DEL\s+TICKET\s*\]/gi, "")
+    .replace(/\[\s*INSTRUCCION\s+DEL\s+AGENTE\s+-\s+PRIORIDAD\s+MAXIMA\s*\]/gi, "")
+    .replace(/\[\s*CONTEXTO\s+PERSISTENTE\s+DEL\s+AGENTE\s*\]/gi, "")
+    .replace(/EJECUCIÓN:.*$/gim, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -1391,12 +1389,12 @@ async function rewriteCustomPromptReplyIfNeeded({
 
   if (!needsRewrite) return currentReply;
 
-  const rewriteSystem = `Eres editor senior de postventa EMChile. Reescribe respuestas para que queden naturales, humanas y profesionales.
+  const rewriteSystem = `Eres editor senior de postventa EMChile. Tu misión es pulir la redacción del borrador para que sea fluida y profesional, RESPETANDO EL OBJETIVO Y EL TONO de la instrucción del agente.
 REGLAS:
-• Mantén el mismo objetivo y datos clave
-• No copies frases literales del texto fuente
-• Evita muletillas y repeticiones
-• Si es respuesta al cliente, mantén tono cordial y firma "Equipo EMChile"
+• Mejora la redacción sin alterar las instrucciones específicas del usuario
+• No copies frases literales largas del ticket
+• Si el usuario pidió una firma específica, MANTENLA
+• Si no hay instrucción de firma, usa "Equipo EMChile"
 • Entrega solo el texto final`;
 
   const rewriteUser = [
@@ -1432,7 +1430,9 @@ function looksLikePromptEcho(text) {
   return (
     normalized.includes("instruccion del agente") ||
     normalized.includes("contexto de apoyo del ticket") ||
-    normalized.includes("regla de cumplimiento")
+    normalized.includes("prioridad maxima") ||
+    normalized.includes("regla de cumplimiento") ||
+    normalized.includes("ejecucion:")
   );
 }
 
@@ -1490,7 +1490,7 @@ Tu función es analizar tickets y generar tres salidas estructuradas: respuesta 
 • NUNCA inventes datos que no estén en el ticket
 • NUNCA uses tecnicismos internos en la respuesta al cliente
 • Mantén estricta separación de salidas: clientReply solo para cliente, internalMessage solo para comunicación interna
-• La respuesta al cliente (clientReply) SIEMPRE debe tener la estructura completa de un correo: saludo inicial ("Estimado/a [Nombre],"), desarrollo y despedida ("Saludos cordiales,\\nEquipo EMChile")
+• La respuesta al cliente (clientReply) debe tener la estructura de un correo (saludo, desarrollo, despedida) SALVO que la instrucción del agente pida explícitamente lo contrario (como brevedad extrema o formato distinto).
 • Si el caso es ambiguo, incompleto o sensible → establece shouldReply = false
 
 ══════════════════════════════════════════
@@ -1582,24 +1582,7 @@ function buildUserPrompt(ticketData) {
   const clientCtx = String(ticketData?.responseContext?.client || "").trim();
   const internalCtx = String(ticketData?.responseContext?.internal || "").trim();
 
-  if (clientCtx) {
-    lines.push("");
-    lines.push("══════════════════════════════════════");
-    lines.push("INSTRUCCIÓN DEL AGENTE PARA clientReply (PRIORIDAD MÁXIMA):");
-    lines.push(clientCtx);
-    lines.push("IMPORTANTE: Integra esta instrucción de forma natural en clientReply.");
-    lines.push("No la copies literalmente ni la pegues como bloque separado.");
-    lines.push("══════════════════════════════════════");
-  }
-
-  if (internalCtx) {
-    lines.push("");
-    lines.push("══════════════════════════════════════");
-    lines.push("INSTRUCCIÓN DEL AGENTE PARA internalMessage (PRIORIDAD MÁXIMA):");
-    lines.push(internalCtx);
-    lines.push("IMPORTANTE: Integra esta instrucción en internalMessage como bullet relevante.");
-    lines.push("══════════════════════════════════════");
-  }
+  // (Instructions moved to the end for better model attention)
 
   // Explicitly list extracted OC numbers so the AI always sees them
   if (ticketData.ocNumbers && ticketData.ocNumbers.length) {
@@ -1636,9 +1619,18 @@ function buildUserPrompt(ticketData) {
     lines.push("", "CAMPOS ADICIONALES DEL TICKET:", ticketData.additionalData);
   }
 
+  if (clientCtx || internalCtx) {
+    lines.push("");
+    lines.push("══════════════════════════════════════");
+    lines.push("INSTRUCCIONES ESPECÍFICAS DEL AGENTE (PRIORIDAD TOTAL):");
+    if (clientCtx) lines.push(`PARA CLIENTE: ${clientCtx}`);
+    if (internalCtx) lines.push(`PARA INTERNO: ${internalCtx}`);
+    lines.push("══════════════════════════════════════");
+  }
+
   lines.push(
     "",
-    "Genera el análisis siguiendo estrictamente las reglas EMChile y las instrucciones del agente indicadas arriba.",
+    "INSTRUCCIÓN FINAL: Genera el análisis siguiendo estrictamente las REGLAS EMChile y, por sobre todo, las INSTRUCCIONES DEL AGENTE indicadas justo arriba.",
   );
   return lines.join("\n");
 }
@@ -1763,35 +1755,9 @@ function ensureClientReplyCompleteness(clientReply, ticketData) {
 }
 
 function ensureAgentClientContext(clientReply, ticketData) {
-  // El contexto ya fue pasado directamente al AI como instrucción en buildUserPrompt.
-  // Esta función ahora solo actúa como red de seguridad: si el AI ignoró completamente
-  // el contexto (no hay ninguna palabra del contexto en la respuesta), lo añade brevemente.
-  const clientContext = String(ticketData?.responseContext?.client || "").trim();
-  if (!clientContext) return String(clientReply || "").trim();
-
-  const reply = String(clientReply || "").trim();
-  if (!reply) return reply;
-
-  const replyNorm = normalizeForComparison(reply);
-  const ctxNorm = normalizeForComparison(clientContext);
-
-  // Si la respuesta ya tiene al menos el 40% de las palabras clave del contexto, confiar en el AI.
-  const ctxWords = ctxNorm.split(" ").filter((w) => w.length > 4);
-  const matchedWords = ctxWords.filter((w) => replyNorm.includes(w)).length;
-  const coverageRatio = ctxWords.length > 0 ? matchedWords / ctxWords.length : 1;
-  if (coverageRatio >= 0.4) return reply;
-
-  // Fallback: inyectar solo si el contexto fue completamente ignorado
-  const contextSentence = buildAgentClientContextSentence(clientContext);
-  const lines = reply.split("\n");
-
-  let insertAt = 0;
-  while (insertAt < lines.length && !lines[insertAt].trim()) insertAt += 1;
-  if (insertAt < lines.length) insertAt += 1;
-  while (insertAt < lines.length && !lines[insertAt].trim()) insertAt += 1;
-
-  lines.splice(insertAt, 0, "", contextSentence);
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  // El contexto ya se pasa directamente al AI como instrucción con prioridad máxima.
+  // Confiaremos en la capacidad del modelo para integrarlo naturalmente.
+  return String(clientReply || "").trim();
 }
 
 function buildAgentClientContextSentence(clientContext) {
@@ -1890,30 +1856,9 @@ function ensureCriticalInternalMessage(
 }
 
 function ensureAgentInternalContext(internalMessage, ticketData) {
-  const internalContext = String(ticketData?.responseContext?.internal || "").trim();
-  if (!internalContext) return internalMessage;
-
-  const normalizedContext = normalizeForComparison(internalContext);
-  if (isInternalDataExtractionIntent(normalizedContext)) {
-    return buildInternalDataExtractionMessage(ticketData, internalMessage);
-  }
-
-  const lines = String(internalMessage || "")
-    .split("\n")
-    .filter(Boolean);
-  const firstLine = lines[0] || buildFallbackInternalHeader(ticketData);
-  const rest = lines.slice(1);
-  const existing = normalizeForComparison(rest.join(" "));
-  const ctxNorm = normalizeForComparison(internalContext);
-
-  if (ctxNorm && existing.includes(ctxNorm)) {
-    return [firstLine, ...rest].join("\n");
-  }
-
-  const bullet = buildAgentInternalContextBullet(internalContext);
-  // Keep this context near the top so it is visible and actionable.
-  rest.unshift(`• ${bullet}`);
-  return [firstLine, ...rest].join("\n");
+  // El contexto ya se pasa directamente al AI como instrucción con prioridad máxima.
+  // Confiaremos en la capacidad del modelo para integrarlo naturalmente.
+  return String(internalMessage || "").trim();
 }
 
 function buildAgentInternalContextBullet(internalContext) {

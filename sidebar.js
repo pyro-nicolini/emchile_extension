@@ -724,12 +724,11 @@
 
   // ─── ANTI-MUESTRAS ───────────────────────────────────────────────────────
   const ANTI_SAMPLE_PROMPT =
-    "Redacta una respuesta cordial y profesional: saludo con nombre y agradece la informacion/ficha tecnica. " +
-    "Indica que por el momento/momentaneamente no estamos fabricando muestras individuales hasta nuevo aviso, " +
-    "por lo que no es posible comprometer el plazo indicado. Aclara que las muestras solo se entregan si hay " +
-    "stock fisico disponible y, si hay stock, se informara a la brevedad. Si no hay stock, comunicar que se " +
-    "avisara cualquier novedad. Mantener tono cercano y con disposicion a ayudar. Cierra con saludo cordial y " +
-    "firma 'Equipo EMChile'.";
+    "Redacta una respuesta cordial: saluda por nombre y agradece la información. " +
+    "Explica que momentáneamente NO estamos fabricando muestras individuales hasta nuevo aviso, " +
+    "por lo que no podemos comprometer plazos de entrega para muestras. " +
+    "Aclara que solo se despachan si hay stock físico disponible; de lo contrario, avisaremos cualquier novedad. " +
+    "Mantén disposición a ayudar pero sé firme en no dar fechas. Firma: Equipo EMChile.";
 
   function runAntiSample() {
     if (!currentTicket && !currentResult) {
@@ -1429,10 +1428,10 @@
     let html = `<table style="border-collapse: collapse; font-family: sans-serif; font-size: 12px;">`;
     html += `<tr>${thsHtml}</tr>`;
 
-    let tsvHeaders = [
+    let waText = ""; // WhatsApp-friendly text
+    let tsv = [
       "OC", "Ticket OC", "MP", "Última comunicación", "Resolución", "Último correo", "Observaciones", "Monto"
     ].filter((_, i) => visibleCols[i]).join("\t") + "\n";
-    let tsv = tsvHeaders;
 
     ocRows.forEach(row => {
       let estado = TICKET_ESTADO_OC.find(e => e.value === row.estado_oc)?.label || row.estado_oc;
@@ -1464,11 +1463,26 @@
         return `<td style="${style}">${c.text}</td>`;
       }).join("") + `</tr>`;
 
-      let tsvCells = [
-        row.oc || "", estado, mpState, comStr, resStr, row.ultimo_correo || "",
-        (row.observaciones || "").replace(/\n/g, ' '), row.monto || ""
+      let labels = [
+        "OC", "Ticket OC", "MP", "Última com.", "Resolución", "Último correo", "Observaciones", "Monto"
       ];
-      tsv += tsvCells.filter((_, i) => visibleCols[i]).join("\t") + "\n";
+      let rowWa = [];
+      let rowTsv = [];
+
+      let rawCells = [
+        row.oc || "", estado, mpState, comStr, resStr, row.ultimo_correo || "",
+        row.observaciones || "", row.monto || ""
+      ];
+
+      rawCells.forEach((val, i) => {
+        if (visibleCols[i]) {
+          rowWa.push(`*${labels[i]}:* ${val || "—"}`);
+          rowTsv.push(String(val || "").replace(/\n/g, " "));
+        }
+      });
+
+      waText += rowWa.join("\n") + "\n\n";
+      tsv += rowTsv.join("\t") + "\n";
     });
 
     html += `</table>`;
@@ -1476,16 +1490,16 @@
     try {
       const clipboardItem = new ClipboardItem({
         "text/html": new Blob([html], { type: "text/html" }),
-        "text/plain": new Blob([tsv], { type: "text/plain" })
+        "text/plain": new Blob([waText.trim()], { type: "text/plain" })
       });
       await navigator.clipboard.write([clipboardItem]);
       if (el.btnTblCopy) animateCopy(el.btnTblCopy);
       showToast("✓ Tabla copiada con colores (pégala en Sheets)");
     } catch (e) {
       // Fallback
-      copyText(tsv.trim()).then(() => {
+      copyText(waText.trim()).then(() => {
         if (el.btnTblCopy) animateCopy(el.btnTblCopy);
-        showToast("✓ Copiado al portapapeles");
+        showToast("✓ Copiado para WhatsApp");
       });
     }
   }
