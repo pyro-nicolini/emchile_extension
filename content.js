@@ -11,6 +11,9 @@
 
   let sidebarFrame = null;
   let floatingBtn = null;
+  let fireFab = null;
+  let fireMenu = null;
+  let fireMenuOpen = false;
   let currentTicketId = null;
   let isAnalyzing = false;
   let sidebarOpen = false;
@@ -18,13 +21,31 @@
   let isResizing = false;
   let resizerEl = null;
 
+  let fireMenuWidth = 400;
+
   // ─── INIT ──────────────────────────────────────────────────────────────────
   function init() {
-    chrome.storage.local.get(["emchileSidebarWidth"], (res) => {
+    chrome.storage.local.get(["emchileSidebarWidth", "emchileFireMenuWidth", "emchileFireDebugLogs", "emchileFireSummaryTable", "emchileFireOcInput"], (res) => {
       sidebarWidth = res.emchileSidebarWidth || 500;
+      fireMenuWidth = res.emchileFireMenuWidth || 400;
       applyWidth(sidebarWidth);
       injectStyles();
       injectUI();
+      applyFireMenuWidth(fireMenuWidth);
+
+      if (res.emchileFireOcInput) {
+        const ocInputEl = document.getElementById("fire-oc-input");
+        if (ocInputEl) ocInputEl.value = res.emchileFireOcInput;
+      }
+      if (res.emchileFireDebugLogs) {
+        const debugTbody = document.querySelector("#emchile-fire-debug-table tbody");
+        if (debugTbody) debugTbody.innerHTML = res.emchileFireDebugLogs;
+      }
+      if (res.emchileFireSummaryTable) {
+        const summaryTbody = document.querySelector("#emchile-fire-summary-table tbody");
+        if (summaryTbody) summaryTbody.innerHTML = res.emchileFireSummaryTable;
+      }
+
       setupMutationObserver();
       setupHistoryListeners();
       setupEmergencyClose();
@@ -105,6 +126,135 @@
         display: none;
       }
       #emchile-resizer.resizer-open { display: block; }
+
+      /* FIRE FAB & MENU */
+      #emchile-fire-fab {
+        position: fixed;
+        right: 20px;
+        top: 180px;
+        z-index: 2147483640;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        background: linear-gradient(160deg, #500000 0%, #d00000 100%);
+        border: 1px solid rgba(255, 77, 77, 0.55);
+        border-radius: 14px;
+        padding: 14px 10px;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+        box-shadow: 0 0 22px rgba(208, 0, 0, 0.3), 0 6px 24px rgba(0,0,0,0.5);
+        min-width: 60px;
+      }
+      #emchile-fire-fab:hover {
+        border-color: rgba(255, 77, 77, 0.8);
+        box-shadow: 0 0 32px rgba(255, 77, 77, 0.6), 0 6px 24px rgba(0,0,0,0.55);
+      }
+      #emchile-fire-fab .ef-icon { font-size: 22px; line-height: 1; filter: drop-shadow(0 0 5px rgba(255, 77, 77, 0.9)); }
+      #emchile-fire-fab .ef-text {
+        font-family: 'Menlo','Courier New',monospace;
+        font-size: 9px; font-weight: 700;
+        color: #ffcccc; letter-spacing: 1.5px; text-transform: uppercase;
+        text-shadow: 0 0 8px rgba(255, 77, 77, 0.65);
+      }
+      #emchile-fire-menu {
+        position: fixed;
+        right: 90px;
+        top: 180px;
+        transform: translateX(20px);
+        opacity: 0;
+        pointer-events: none;
+        z-index: 2147483640;
+        background: linear-gradient(135deg, #4a0000 0%, #1a0000 100%);
+        border: 1px solid #ff4d4d;
+        border-radius: 12px;
+        padding: 15px;
+        width: 400px;
+        box-shadow: 0 0 20px rgba(255,0,0,0.4);
+        transition: all 0.3s ease;
+        color: #fff;
+        font-family: sans-serif;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-sizing: border-box;
+      }
+      #emchile-fire-menu * {
+        box-sizing: border-box;
+      }
+      #emchile-fire-menu.fire-open {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(-50%) translateX(0);
+      }
+      #emchile-fire-menu input {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+        background: rgba(0,0,0,0.5);
+        border: 1px solid #ff4d4d;
+        color: #fff;
+        border-radius: 4px;
+        font-family: monospace;
+      }
+      #emchile-fire-menu button {
+        width: 100%;
+        padding: 10px;
+        background: #d00000;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        text-transform: uppercase;
+      }
+      #emchile-fire-menu button:hover {
+        background: #ff0000;
+      }
+      #emchile-fire-table-container {
+        margin-top: 15px;
+      }
+      #emchile-fire-table-container table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+      }
+      #emchile-fire-table-container th, #emchile-fire-table-container td {
+        border: 1px solid #800000;
+        padding: 6px;
+        text-align: left;
+      }
+      #emchile-fire-table-container th {
+        background: #600000;
+      }
+      /* New Table & Debug Collapsible */
+      .fire-summary-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+        margin-top: 5px;
+        background: rgba(0,0,0,0.4);
+      }
+      .fire-summary-table th, .fire-summary-table td {
+        border: 1px solid #800;
+        padding: 4px;
+        text-align: left;
+      }
+      .fire-summary-table th {
+        background: #500;
+        color: #ffaaaa;
+      }
+      #emchile-fire-debug-toggle {
+        cursor: pointer;
+        background: rgba(255,255,255,0.05);
+        padding: 5px;
+        border-radius: 4px;
+        display: flex;
+        justify-content: space-between;
+      }
+      #emchile-fire-debug-toggle:hover {
+        background: rgba(255,255,255,0.1);
+      }
     `;
     document.head.appendChild(s);
   }
@@ -122,6 +272,107 @@
       '<div class="ef-icon">⚡</div><div class="ef-text">AI Desk</div>';
     floatingBtn.addEventListener("click", handleFabClick);
     document.body.appendChild(floatingBtn);
+
+    // Fire FAB
+    fireFab = document.createElement("div");
+    fireFab.id = "emchile-fire-fab";
+    fireFab.setAttribute("role", "button");
+    fireFab.setAttribute("aria-label", "EMChile Fire Desk");
+    fireFab.innerHTML =
+      '<div class="ef-icon">🔥</div><div class="ef-text">FUEGO</div>';
+    fireFab.addEventListener("click", handleFireFabClick);
+    document.body.appendChild(fireFab);
+
+    // Fire Menu
+    fireMenu = document.createElement("div");
+    fireMenu.id = "emchile-fire-menu";
+    fireMenu.innerHTML = `
+      <div id="emchile-fire-resizer"></div>
+      <input type="text" id="fire-oc-input" placeholder="Pegar OC (ej. 1234-56-AG25)" />
+      <button id="fire-play-btn">PLAY X1</button>
+      
+      <!-- Debug Collapsible -->
+      <div style="margin-top: 15px;">
+        <div id="emchile-fire-debug-toggle">
+          <h4 style="margin:0; color:#ffaaaa; font-size:11px;">Tabla Ejecución (Debug)</h4>
+          <span id="fire-debug-arrow">▶</span>
+        </div>
+        <div id="emchile-fire-debug-content" style="display:none; margin-top:5px; max-height:100px; overflow-y:auto; border: 1px solid #800; border-radius: 4px; background: rgba(0,0,0,0.3); font-size:10px;">
+          <table id="emchile-fire-debug-table" style="width:100%; border-collapse:collapse;">
+            <tbody style="font-family: monospace;"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- New Summary Table -->
+      <div style="margin-top: 15px;">
+        <h4 style="margin:0 0 5px 0; color:#ffaa55; font-size:11px;">Opciones Encontradas (v1.2)</h4>
+        <div style="max-height:150px; overflow-y:auto; border:1px solid #850; border-radius:4px;">
+          <table id="emchile-fire-summary-table" class="fire-summary-table">
+            <thead>
+              <tr>
+                <th>OC</th>
+                <th>Ticket</th>
+                <th>Emisor</th>
+                <th>Hora/Fecha</th>
+                <th>Asunto</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(fireMenu);
+
+    // Toggle Debug
+    const debugToggle = document.getElementById("emchile-fire-debug-toggle");
+    const debugContent = document.getElementById("emchile-fire-debug-content");
+    const debugArrow = document.getElementById("fire-debug-arrow");
+    debugToggle.addEventListener("click", () => {
+      const isHidden = debugContent.style.display === "none";
+      debugContent.style.display = isHidden ? "block" : "none";
+      debugArrow.textContent = isHidden ? "▼" : "▶";
+    });
+
+    // Fire Resizer Logic
+    const fireResizer = document.getElementById("emchile-fire-resizer");
+    let isFireResizing = false;
+    fireResizer.addEventListener("mousedown", (e) => {
+      isFireResizing = true;
+      document.body.style.cursor = "ew-resize";
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isFireResizing) return;
+      const newWidth = window.innerWidth - e.clientX - 90; // 90 is the new right offset
+      if (newWidth > 300 && newWidth < 1200) {
+        fireMenuWidth = newWidth;
+        applyFireMenuWidth(newWidth);
+      }
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (isFireResizing) {
+        isFireResizing = false;
+        document.body.style.cursor = "default";
+        chrome.storage.local.set({ emchileFireMenuWidth: fireMenuWidth });
+      }
+    });
+
+    const ocInputEl = document.getElementById("fire-oc-input");
+    ocInputEl.addEventListener("change", (e) => {
+      chrome.storage.local.set({ emchileFireOcInput: e.target.value.trim() });
+    });
+
+    const playBtn = document.getElementById("fire-play-btn");
+    if (playBtn) {
+      playBtn.addEventListener("click", () => {
+        console.log("EMChile: Play button clicked");
+        handleFirePlayClick();
+      });
+    }
 
     // Sidebar iframe (loads sidebar.html from extension)
     sidebarFrame = document.createElement("iframe");
@@ -161,7 +412,275 @@
   }
 
   // ─── FAB CLICK ─────────────────────────────────────────────────────────────
+  function handleFireFabClick() {
+    fireMenuOpen = !fireMenuOpen;
+    if (fireMenuOpen) {
+      fireMenu.classList.add("fire-open");
+      if (sidebarOpen) closeSidebar();
+    } else {
+      fireMenu.classList.remove("fire-open");
+    }
+  }
+
+  function fireLog(msg) {
+    const tbody = document.querySelector("#emchile-fire-debug-table tbody");
+    if (!tbody) return;
+    const time = new Date().toLocaleTimeString([], { hour12: false });
+    const rowHTML = `<tr><td style="padding:2px 4px; border-bottom:1px solid #500; white-space:nowrap; width:1%; color:#aaa;">[${time}]</td><td style="padding:2px 4px; border-bottom:1px solid #500; color:#ddd;">${msg}</td></tr>`;
+    tbody.innerHTML = rowHTML + tbody.innerHTML; // Prepend
+    chrome.storage.local.set({ emchileFireDebugLogs: tbody.innerHTML });
+  }
+
+  function applyFireMenuWidth(w) {
+    if (fireMenu) fireMenu.style.width = w + "px";
+  }
+
+  function handleFirePlayClick() {
+    fireLog(`Botón PLAY X1 presionado.`);
+    const ocInputEl = document.getElementById("fire-oc-input");
+    const ocInput = ocInputEl ? ocInputEl.value.trim() : "";
+    
+    if (!ocInput) {
+      alert("Por favor ingresa una OC.");
+      return;
+    }
+
+    fireLog(`Iniciando búsqueda de OC: ${ocInput}`);
+
+    // Limpiar tabla resumen antes de empezar
+    const summaryTbody = document.querySelector("#emchile-fire-summary-table tbody");
+    if (summaryTbody) summaryTbody.innerHTML = "";
+    chrome.storage.local.remove("emchileFireSummaryTable");
+
+    // Disparar atajo de teclado '/' para abrir la busqueda en Zoho
+    document.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "/",
+      code: "Slash",
+      keyCode: 191,
+      which: 191,
+      bubbles: true,
+      cancelable: true
+    }));
+    document.dispatchEvent(new KeyboardEvent("keyup", {
+      key: "/",
+      code: "Slash",
+      keyCode: 191,
+      which: 191,
+      bubbles: true,
+      cancelable: true
+    }));
+    
+    fireLog(`Atajo '/' enviado para abrir búsqueda global`);
+
+    setTimeout(() => {
+      // Buscar el input de busqueda que deberia tener el foco
+      let searchBox = document.activeElement;
+      
+      if (!searchBox || (searchBox.tagName !== "INPUT" && searchBox.tagName !== "TEXTAREA")) {
+        // Fallback si no tomo el foco automaticamente
+        const fallbacks = document.querySelectorAll("input[type='search'], [placeholder*='Search' i], [placeholder*='Buscar' i], #searchword, .search-input, .global-search");
+        if (fallbacks.length > 0) {
+          searchBox = fallbacks[0];
+          searchBox.focus();
+        }
+      }
+
+      if (searchBox && (searchBox.tagName === "INPUT" || searchBox.tagName === "TEXTAREA")) {
+        fireLog(`Caja de búsqueda localizada. Pegando texto.`);
+        searchBox.value = ocInput;
+        searchBox.dispatchEvent(new Event("input", { bubbles: true }));
+        searchBox.dispatchEvent(new Event("change", { bubbles: true }));
+
+        // Presionar Enter
+        fireLog(`Ejecutando Enter para iniciar búsqueda...`);
+        searchBox.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true
+        }));
+        searchBox.dispatchEvent(new KeyboardEvent("keyup", {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true
+        }));
+      } else {
+        fireLog(`Error: Caja de búsqueda de Zoho no encontrada.`);
+        return;
+      }
+
+      fireLog(`Esperando carga de resultados DOM...`);
+
+      // Polling para esperar los resultados
+      let retries = 0;
+      const pollTimer = setInterval(() => {
+        retries++;
+        if (retries > 20) {
+          clearInterval(pollTimer);
+          fireLog(`Timeout: No se detectaron resultados tras 10 segundos.`);
+          return;
+        }
+
+        const resultCandidates = [
+          ".zd-search-result-item", ".search-result-item", ".zs-list-item", ".zs-item", 
+          ".search-list-item", ".search-row", ".zd-search-result", ".zgh-searchRow",
+          ".search-record-item", ".search-list-row", ".record-row", ".lyteTableRow",
+          ".zd-ticket-row", ".zd-list-row", ".zd-record-row",
+          "lyte-table-row", "tr.lyteTableRow", ".dv-row", ".ticket-row", "[class*='listRow']",
+          ".zgh-search-result-row", ".search-ticket-row"
+        ];
+        
+        let listRows = [];
+        let matchedSelector = "Ninguno";
+
+        for (const sel of resultCandidates) {
+          try {
+            const rows = document.querySelectorAll(sel);
+            if (rows.length > 0) {
+              if (rows.length >= 3) { 
+                listRows = Array.from(rows);
+                matchedSelector = sel;
+                break; 
+              } else if (rows.length > listRows.length) {
+                listRows = Array.from(rows);
+                matchedSelector = sel;
+              }
+            }
+          } catch (_) {}
+        }
+
+        fireLog(`Candidatos detectados: ${listRows.length} usando selector: ${matchedSelector}`);
+
+        // Deduplicar y filtrar por visibilidad
+        const uniqueTickets = new Map();
+
+        function processPotentialRow(row) {
+          const rawText = row.textContent.replace(/\s+/g, " ").trim();
+          if (!rawText || row.offsetWidth === 0) return;
+          
+          const ticketMatch = rawText.match(/#\d+/);
+          if (!ticketMatch) return;
+          
+          const tId = ticketMatch[0];
+          // Solo lo guardamos si no lo tenemos o si este nodo es "mejor" (mas especifico)
+          if (!uniqueTickets.has(tId) || row.textContent.length < uniqueTickets.get(tId).textContent.length) {
+            uniqueTickets.set(tId, row);
+          }
+        }
+
+        listRows.forEach(processPotentialRow);
+
+        // Fallback agresivo si no tenemos suficientes tickets únicos
+        if (uniqueTickets.size < 3) {
+          fireLog(`Deduplicación resultó en ${uniqueTickets.size} tickets. Buscando más...`);
+          const allPotential = Array.from(document.querySelectorAll("*")).filter(el => {
+            // Buscamos cualquier elemento pequeño que tenga el patrón #1234
+            return el.textContent.length < 20 && /#\d+/.test(el.textContent.trim());
+          });
+
+          allPotential.forEach(el => {
+            let parent = el.parentElement;
+            // Subir hasta encontrar un contenedor que tenga el ID y el Título
+            for (let i = 0; i < 10; i++) {
+              if (!parent) break;
+              const hasTitle = parent.querySelector(".subject, [class*='subject'], .ticket-title, [class*='title'], h2, h3, .search-title, a[class*='title']");
+              const txt = parent.textContent.trim();
+              if (hasTitle && txt.length < 1000) {
+                processPotentialRow(parent);
+                break;
+              }
+              parent = parent.parentElement;
+            }
+          });
+        }
+
+        const finalRows = Array.from(uniqueTickets.values());
+        fireLog(`Extracción final: ${finalRows.length} tickets únicos`);
+
+        if (finalRows.length > 0) {
+          clearInterval(pollTimer);
+          const comms = [];
+          
+          finalRows.forEach((row, idx) => {
+            fireLog(`Procesando fila ${idx + 1}/${finalRows.length}...`);
+            const rawText = row.textContent.replace(/\s+/g, " ").trim();
+            const ticketMatch = rawText.match(/#\d+/);
+            const ticketId = ticketMatch ? ticketMatch[0] : "N/A";
+
+            // 2. Metadatos (Emisor y Hora/Fecha)
+            let sender = "";
+            let ts = "";
+            const metadataParts = rawText.split(/\s*[.·|]\s*/);
+            if (metadataParts.length >= 2) {
+              const tIdx = metadataParts.findIndex(p => p.includes(ticketId));
+              if (tIdx !== -1 && metadataParts[tIdx + 1]) {
+                sender = metadataParts[tIdx + 1].trim();
+              } else {
+                sender = metadataParts[1].trim();
+              }
+              ts = metadataParts[metadataParts.length - 1].trim();
+            }
+
+            // 3. Asunto (Subject)
+            let subject = "";
+            const titleEl = row.querySelector(".subject, [class*='subject'], .ticket-title, [class*='title'], h2, h3, .search-title, a[class*='title']");
+            if (titleEl) {
+              subject = titleEl.textContent.trim();
+            } else if (metadataParts.length > 0) {
+              subject = metadataParts[0].split("#")[0].trim();
+            }
+            
+            if (!subject || subject.length < 5) {
+              subject = rawText.substring(0, 80);
+            }
+
+            // 4. OC: Solo si está presente en el Asunto (Título)
+            // Usamos un check estricto para evitar falsos positivos
+            const hasOc = subject.includes(ocInput);
+            const rowOc = hasOc ? ocInput : "";
+
+            fireLog(`Fila: ${ticketId} | Subject: ${subject.substring(0,25)}... | OC Detectada: ${hasOc ? 'SI' : 'NO'}`);
+
+            // Fallbacks finales para el emisor
+            if (!sender || sender.length > 70) {
+              const senderEl = row.querySelector(".contact-name, [class*='contact'], [class*='requester'], [class*='sender'], .name");
+              sender = senderEl ? senderEl.textContent.trim() : "Desconocido";
+            }
+            if (!ts) {
+              const timeEl = row.querySelector("time[datetime], [class*='time'], [class*='date']");
+              ts = timeEl ? (timeEl.getAttribute("datetime") || timeEl.textContent.trim()) : "";
+            }
+
+            fireLog(`Ticket: ${ticketId} | OC: ${rowOc || 'No'} | Hora: ${ts} | Asunto: ${subject.substring(0,30)}...`);
+            // fireLog(`DEBUG RAW: ${rawText.substring(0,100)}`);
+
+            const logSubject = subject.length > 60 ? subject.substring(0, 60) + "..." : subject;
+            const summaryTbody = document.querySelector("#emchile-fire-summary-table tbody");
+            if (summaryTbody) {
+              const tr = document.createElement("tr");
+              tr.innerHTML = `<td>${rowOc}</td><td>${ticketId}</td><td>${sender}</td><td>${ts}</td><td>${logSubject}</td>`;
+              summaryTbody.appendChild(tr);
+              fireLog(`Fila agregada a tabla: ${ticketId}`);
+              chrome.storage.local.set({ emchileFireSummaryTable: summaryTbody.innerHTML });
+            }
+            comms.push({ sender, ts, text: subject, ticketId });
+          });
+          fireLog(`Scraping completado con éxito.`);
+        }
+      }, 500);
+    }, 300); // 300ms delay para que Zoho enfoque el input despues del atajo
+  }
+
   function handleFabClick() {
+    if (fireMenuOpen) {
+      fireMenuOpen = false;
+      fireMenu.classList.remove("fire-open");
+    }
     if (sidebarOpen) {
       closeSidebar();
     } else {
