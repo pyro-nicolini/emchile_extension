@@ -22,16 +22,18 @@
   let resizerEl = null;
 
   let fireMenuWidth = 400;
+  let fireMenuHeight = 500;
 
   // ─── INIT ──────────────────────────────────────────────────────────────────
   function init() {
-    chrome.storage.local.get(["emchileSidebarWidth", "emchileFireMenuWidth", "emchileFireDebugLogs", "emchileFireSummaryTable", "emchileFireOcInput"], (res) => {
+    chrome.storage.local.get(["emchileSidebarWidth", "emchileFireMenuWidth", "emchileFireMenuHeight", "emchileFireDebugLogs", "emchileFireSummaryTable", "emchileFireOcInput"], (res) => {
       sidebarWidth = res.emchileSidebarWidth || 500;
       fireMenuWidth = res.emchileFireMenuWidth || 400;
+      fireMenuHeight = res.emchileFireMenuHeight || 500;
       applyWidth(sidebarWidth);
       injectStyles();
       injectUI();
-      applyFireMenuWidth(fireMenuWidth);
+      applyFireMenuSize(fireMenuWidth, fireMenuHeight);
 
       if (res.emchileFireOcInput) {
         const ocInputEl = document.getElementById("fire-oc-input");
@@ -51,6 +53,30 @@
       setupEmergencyClose();
       setTimeout(checkTicketChange, 1600);
       setInterval(scanMercadoPublicoResults, 3000);
+
+      // Check if we were in the middle of a Play X2 flow
+      chrome.storage.local.get(["emchilePendingPlay2"], (res2) => {
+        if (res2.emchilePendingPlay2) {
+          chrome.storage.local.remove("emchilePendingPlay2");
+          fireLog("Continuando Play X2: Preparando vista de chat...");
+          handleFirePlay2Step2();
+        }
+      });
+
+      // Polling de URL para SPAs (Zoho Desk) - Detectar navegación a ticket tras PLAY X2
+      let lastUrlPlay2 = location.href;
+      setInterval(() => {
+        if (location.href !== lastUrlPlay2) {
+          lastUrlPlay2 = location.href;
+          chrome.storage.local.get(["emchilePendingPlay2"], (r) => {
+            if (r.emchilePendingPlay2) {
+              chrome.storage.local.remove("emchilePendingPlay2");
+              fireLog("Navegación detectada: Extrayendo conversación...");
+              handleFirePlay2Step2();
+            }
+          });
+        }
+      }, 1000);
     });
   }
 
@@ -160,32 +186,50 @@
       }
       #emchile-fire-menu {
         position: fixed;
-        right: 90px;
-        top: 180px;
-        transform: translateX(20px);
-        opacity: 0;
-        pointer-events: none;
-        z-index: 2147483640;
-        background: linear-gradient(135deg, #4a0000 0%, #1a0000 100%);
-        border: 1px solid #ff4d4d;
+        left: 20px;
+        top: 20px;
+        width: var(--emchile-fire-width, 95vw);
+        height: var(--emchile-fire-height, 90vh);
+        z-index: 2147483645;
+        background: #111b21;
+        border: 1px solid #222;
         border-radius: 12px;
-        padding: 15px;
-        width: 400px;
-        box-shadow: 0 0 20px rgba(255,0,0,0.4);
-        transition: all 0.3s ease;
-        color: #fff;
-        font-family: sans-serif;
-        max-height: 80vh;
+        box-shadow: 0 10px 50px rgba(0,0,0,0.8);
+        display: none;
+        flex-direction: column;
+        overflow: hidden;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: #e9edef;
+        transition: opacity 0.3s ease;
+      }
+      /* Custom Scrollbar */
+      #emchile-fire-menu ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      #emchile-fire-menu ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      #emchile-fire-menu ::-webkit-scrollbar-thumb {
+        background: #333;
+        border-radius: 10px;
+      }
+      #emchile-fire-menu ::-webkit-scrollbar-thumb:hover {
+        background: #444;
+      }
+      #fire-main-view {
+        flex: 1;
         overflow-y: auto;
-        box-sizing: border-box;
+        padding: 0 15px 15px 15px;
       }
       #emchile-fire-menu * {
         box-sizing: border-box;
       }
       #emchile-fire-menu.fire-open {
+        display: flex !important;
         opacity: 1;
         pointer-events: auto;
-        transform: translateY(-50%) translateX(0);
+        transform: translateX(0);
       }
       #emchile-fire-menu input {
         width: 100%;
@@ -231,7 +275,6 @@
       .fire-summary-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 10px;
         margin-top: 5px;
         background: rgba(0,0,0,0.4);
       }
@@ -255,6 +298,140 @@
       #emchile-fire-debug-toggle:hover {
         background: rgba(255,255,255,0.1);
       }
+      #emchile-fire-resizer {
+        position: absolute;
+        right: 0;
+        top: 0;
+        width: 10px;
+        height: 100%;
+        cursor: ew-resize;
+        z-index: 100;
+      }
+      #emchile-fire-resizer-v {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 10px;
+        cursor: ns-resize;
+        z-index: 100;
+      }
+      .fire-find-section {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 77, 77, 0.3);
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 15px;
+        position: relative;
+      }
+      .fire-find-label {
+        font-size: 0.75em;
+        font-weight: 800;
+        color: #ffaaaa;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.8;
+      }
+      #emchile-fire-menu h4 { font-size: 0.9em; }
+      #emchile-fire-menu input { font-size: 0.9em; }
+      #emchile-fire-menu button { font-size: 1em; }
+      .fire-summary-table { font-size: 0.85em; }
+      #emchile-fire-debug-content { font-size: 0.85em; }
+
+      /* WhatsApp Styles */
+      .wa-multi-container {
+        display: flex;
+        flex-direction: row;
+        gap: 20px;
+        overflow-x: auto;
+        padding: 15px;
+        background: #0b141a;
+        min-height: 400px;
+      }
+      .wa-ticket-column {
+        min-width: 380px;
+        max-width: 450px;
+        height: 600px;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #222;
+        border-radius: 12px;
+        background: #111b21;
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+      .wa-column-header {
+        padding: 12px 15px;
+        background: #202c33;
+        border-bottom: 1px solid #222;
+      }
+      .wa-container {
+        flex: 1;
+        overflow-y: auto;
+        padding: 15px;
+        display: flex;
+        flex-direction: column;
+        background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+        background-blend-mode: overlay;
+        background-color: #0b141a;
+      }
+      .wa-msg {
+        max-width: 85%;
+        margin-bottom: 12px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-size: 0.75em;
+        line-height: 1.4;
+        position: relative;
+        box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+      }
+      .wa-msg.in {
+        align-self: flex-start;
+        background: #202c33;
+        color: #e9edef;
+        border-top-left-radius: 0;
+      }
+      .wa-msg.out {
+        align-self: flex-end;
+        background: #005c4b;
+        color: #e9edef;
+        border-top-right-radius: 0;
+      }
+      .wa-msg-header {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.85em;
+        font-weight: bold;
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+      }
+      .wa-msg-time-badge {
+        display: inline-block;
+        background: rgba(0, 0, 0, 0.25);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.8em;
+        color: #8696a0;
+      }
+      .wa-minimize-btn {
+        opacity: 0.4;
+        transition: opacity 0.2s;
+        padding: 0 4px;
+      }
+      .wa-minimize-btn:hover { opacity: 1; }
+      .wa-text.collapsed { display: none; }
+      .wa-back-btn {
+        background: transparent;
+        border: 1px solid #444;
+        color: #aaa;
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.8em;
+      }
+      .wa-back-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
     `;
     document.head.appendChild(s);
   }
@@ -288,38 +465,79 @@
     fireMenu.id = "emchile-fire-menu";
     fireMenu.innerHTML = `
       <div id="emchile-fire-resizer"></div>
-      <input type="text" id="fire-oc-input" placeholder="Pegar OC (ej. 1234-56-AG25)" />
-      <button id="fire-play-btn">PLAY X1</button>
-      
-      <!-- Debug Collapsible -->
-      <div style="margin-top: 15px;">
-        <div id="emchile-fire-debug-toggle">
-          <h4 style="margin:0; color:#ffaaaa; font-size:11px;">Tabla Ejecución (Debug)</h4>
-          <span id="fire-debug-arrow">▶</span>
-        </div>
-        <div id="emchile-fire-debug-content" style="display:none; margin-top:5px; max-height:100px; overflow-y:auto; border: 1px solid #800; border-radius: 4px; background: rgba(0,0,0,0.3); font-size:10px;">
-          <table id="emchile-fire-debug-table" style="width:100%; border-collapse:collapse;">
-            <tbody style="font-family: monospace;"></tbody>
-          </table>
-        </div>
+      <div id="emchile-fire-resizer-v"></div>
+
+      <div class="fire-find-section" style="margin: 15px 15px 0 15px;">
+        <div class="fire-find-label">FIND1</div>
+        <div style="font-size:0.9em; opacity:0.6; font-style:italic;">Buscador rápido activo...</div>
       </div>
 
-      <!-- New Summary Table -->
-      <div style="margin-top: 15px;">
-        <h4 style="margin:0 0 5px 0; color:#ffaa55; font-size:11px;">Opciones Encontradas (v1.2)</h4>
-        <div style="max-height:150px; overflow-y:auto; border:1px solid #850; border-radius:4px;">
-          <table id="emchile-fire-summary-table" class="fire-summary-table">
-            <thead>
-              <tr>
-                <th>OC</th>
-                <th>Ticket</th>
-                <th>Emisor</th>
-                <th>Hora/Fecha</th>
-                <th>Asunto</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+      <div style="padding: 0 15px;">
+        <input type="text" id="fire-oc-input" placeholder="Pegar OC (ej. 1234-56-AG25)" style="margin-top:10px;" />
+      </div>
+      
+      <div id="fire-main-view">
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <button id="fire-play-btn" style="flex:1;">PLAY X1</button>
+          <button id="fire-play2-btn" style="flex:1; background:#005cc5;">PLAY X2</button>
+        </div>
+
+        <!-- Debug Collapsible -->
+        <div style="margin-top: 15px;">
+          <div id="emchile-fire-debug-toggle">
+            <h4 style="margin:0; color:#ffaaaa;">Tabla Ejecución (Debug)</h4>
+            <span id="fire-debug-arrow">▶</span>
+          </div>
+          <div id="emchile-fire-debug-content" style="display:none; margin-top:5px; max-height:100px; overflow-y:auto; border: 1px solid #800; border-radius: 4px; background: rgba(0,0,0,0.3);">
+            <table id="emchile-fire-debug-table" style="width:100%; border-collapse:collapse;">
+              <tbody style="font-family: monospace;"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- New Summary Table -->
+        <div style="margin-top: 15px;">
+          <h4 style="margin:0 0 5px 0; color:#ffaa55;">Opciones Encontradas (v1.2)</h4>
+          <div style="max-height:150px; overflow-y:auto; border:1px solid #850; border-radius:4px;">
+            <table id="emchile-fire-summary-table" class="fire-summary-table">
+              <thead>
+                <tr>
+                  <th>OC</th>
+                  <th>Ticket</th>
+                  <th>Emisor</th>
+                  <th>Hora/Fecha</th>
+                  <th>Asunto</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- API Config Collapsible -->
+        <div style="margin-top: 15px; border: 1px solid #ffaa55; border-radius: 6px; padding: 5px; background: rgba(255, 170, 85, 0.1);">
+          <div id="emchile-fire-config-toggle" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:5px;">
+            <h4 style="margin:0; color:#ffaa55; font-size:0.85em;">⚙️ CONFIGURACIÓN NECESARIA</h4>
+            <span id="fire-config-arrow" style="font-size:0.8em;">▼</span>
+          </div>
+          <div id="emchile-fire-config-content" style="display:block; margin-top:5px; padding:8px; border-top: 1px solid rgba(255,170,85,0.3);">
+            <div style="margin-bottom:8px;">
+              <label style="display:block; font-size:0.7em; color:#888; margin-bottom:2px;">Portal Name (ej. imcsupplier)</label>
+              <input type="text" id="fire-portal-input" placeholder="Portal Name" style="width:100%; background:#222; border:1px solid #444; color:#fff; font-size:0.8em; padding:3px; border-radius:3px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:0.7em; color:#888; margin-bottom:2px;">Org ID (ej. 854243902)</label>
+              <input type="text" id="fire-orgid-input" placeholder="Org ID" style="width:100%; background:#222; border:1px solid #444; color:#fff; font-size:0.8em; padding:3px; border-radius:3px;" />
+            </div>
+            <div style="font-size:0.65em; color:#666; margin-top:5px; font-style:italic;">* Solo llena esto si el PLAY X2 da error 403/401.</div>
+          </div>
+        </div>
+
+        <div id="fire-whatsapp-view" style="display:none; margin-top: 20px;">
+          <h4 style="margin:0 0 8px 0; color:#ffaaaa;">Conversación WhatsApp</h4>
+          <div class="wa-container" id="wa-container">
+            <!-- WhatsApp messages will be injected here -->
+          </div>
         </div>
       </div>
     `;
@@ -345,19 +563,40 @@
     });
 
     window.addEventListener("mousemove", (e) => {
-      if (!isFireResizing) return;
-      const newWidth = window.innerWidth - e.clientX - 90; // 90 is the new right offset
-      if (newWidth > 300 && newWidth < 1200) {
-        fireMenuWidth = newWidth;
-        applyFireMenuWidth(newWidth);
+      if (isFireResizing) {
+        const newWidth = e.clientX - 20; // Starts from left: 20
+        if (newWidth > 300 && newWidth < 1800) {
+          fireMenuWidth = newWidth;
+          applyFireMenuSize(fireMenuWidth, fireMenuHeight);
+        }
+      }
+      if (isFireResizingV) {
+        const newHeight = e.clientY - 100; // Starts from top: 100
+        const maxH = window.innerHeight - 150; 
+        if (newHeight > 250 && newHeight < maxH) {
+          fireMenuHeight = newHeight;
+          applyFireMenuSize(fireMenuWidth, fireMenuHeight);
+        }
       }
     });
 
+    const fireResizerV = document.getElementById("emchile-fire-resizer-v");
+    let isFireResizingV = false;
+    fireResizerV.addEventListener("mousedown", (e) => {
+      isFireResizingV = true;
+      document.body.style.cursor = "ns-resize";
+      e.preventDefault();
+    });
+
     window.addEventListener("mouseup", () => {
-      if (isFireResizing) {
+      if (isFireResizing || isFireResizingV) {
         isFireResizing = false;
+        isFireResizingV = false;
         document.body.style.cursor = "default";
-        chrome.storage.local.set({ emchileFireMenuWidth: fireMenuWidth });
+        chrome.storage.local.set({ 
+          emchileFireMenuWidth: fireMenuWidth,
+          emchileFireMenuHeight: fireMenuHeight
+        });
       }
     });
 
@@ -373,6 +612,34 @@
         handleFirePlayClick();
       });
     }
+
+    const play2Btn = document.getElementById("fire-play2-btn");
+    if (play2Btn) {
+      play2Btn.addEventListener("click", () => {
+        handleFirePlay2Click();
+      });
+    }
+
+    // Toggle API Config
+    const configToggle = document.getElementById("emchile-fire-config-toggle");
+    const configContent = document.getElementById("emchile-fire-config-content");
+    const configArrow = document.getElementById("fire-config-arrow");
+    configToggle.addEventListener("click", () => {
+      const isHidden = configContent.style.display === "none";
+      configContent.style.display = isHidden ? "block" : "none";
+      configArrow.textContent = isHidden ? "▼" : "▶";
+    });
+
+    const portalInput = document.getElementById("fire-portal-input");
+    const orgIdInput = document.getElementById("fire-orgid-input");
+
+    chrome.storage.local.get(['firePortalName', 'fireOrgId'], (res) => {
+        if (res.firePortalName) portalInput.value = res.firePortalName;
+        if (res.fireOrgId) orgIdInput.value = res.fireOrgId;
+    });
+
+    portalInput.addEventListener("input", (e) => chrome.storage.local.set({ firePortalName: e.target.value.trim() }));
+    orgIdInput.addEventListener("input", (e) => chrome.storage.local.set({ fireOrgId: e.target.value.trim() }));
 
     // Sidebar iframe (loads sidebar.html from extension)
     sidebarFrame = document.createElement("iframe");
@@ -431,8 +698,15 @@
     chrome.storage.local.set({ emchileFireDebugLogs: tbody.innerHTML });
   }
 
-  function applyFireMenuWidth(w) {
-    if (fireMenu) fireMenu.style.width = w + "px";
+  function applyFireMenuSize(w, h) {
+    if (fireMenu) {
+      fireMenu.style.width = w + "px";
+      fireMenu.style.height = h + "px";
+      // Scale font-size: base 13px at 400px width.
+      const baseFontSize = 13;
+      const scaledSize = Math.max(9, Math.min(22, (w / 400) * baseFontSize));
+      fireMenu.style.fontSize = scaledSize + "px";
+    }
   }
 
   function handleFirePlayClick() {
@@ -612,6 +886,19 @@
             const ticketMatch = rawText.match(/#\d+/);
             const ticketId = ticketMatch ? ticketMatch[0] : "N/A";
 
+            // 1.5 Extraer el ID Interno de Zoho (Buscando la secuencia más larga de 17-20 dígitos)
+            let internalId = "";
+            const rowHtml = row.outerHTML || "";
+            const allNumericMatches = rowHtml.match(/\b(\d{17,20})\b/g) || [];
+            
+            if (allNumericMatches.length > 0) {
+                // Ordenar por longitud descendente para quedarnos con el ID más completo (el de 19 dígitos)
+                allNumericMatches.sort((a, b) => b.length - a.length);
+                internalId = allNumericMatches[0];
+            } else {
+                internalId = row.getAttribute('data-recordid') || row.getAttribute('data-id') || "";
+            }
+
             // 2. Metadatos (Emisor y Hora/Fecha)
             let sender = "";
             let ts = "";
@@ -663,9 +950,9 @@
             const summaryTbody = document.querySelector("#emchile-fire-summary-table tbody");
             if (summaryTbody) {
               const tr = document.createElement("tr");
-              tr.innerHTML = `<td>${rowOc}</td><td>${ticketId}</td><td>${sender}</td><td>${ts}</td><td>${logSubject}</td>`;
+              tr.innerHTML = `<td style="display:none;" class="internal-id">${internalId}</td><td>${rowOc}</td><td>${ticketId}</td><td>${sender}</td><td>${ts}</td><td>${logSubject}</td>`;
               summaryTbody.appendChild(tr);
-              fireLog(`Fila agregada a tabla: ${ticketId}`);
+              fireLog(`Fila agregada a tabla: ${ticketId} (Internal: ${internalId})`);
               chrome.storage.local.set({ emchileFireSummaryTable: summaryTbody.innerHTML });
             }
             comms.push({ sender, ts, text: subject, ticketId });
@@ -675,6 +962,484 @@
       }, 500);
     }, 300); // 300ms delay para que Zoho enfoque el input despues del atajo
   }
+
+  async function handleFirePlay2Click() {
+    fireLog(`Botón PLAY X2 presionado. Iniciando extracción múltiple por API de Zoho...`);
+    
+    const summaryTbody = document.querySelector("#emchile-fire-summary-table tbody");
+    if (!summaryTbody || summaryTbody.children.length === 0) {
+      alert("No hay resultados previos. Ejecuta PLAY X1 primero.");
+      return;
+    }
+
+    const waView = document.getElementById("fire-whatsapp-view");
+    waView.style.display = "flex";
+    waView.style.flexDirection = "column";
+    waView.style.minHeight = "600px";
+    waView.style.overflow = "visible";
+
+    waView.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding: 12px 20px; background: #202c33; border-bottom: 1px solid #111b21;">
+        <h4 style="margin:0; color:#e9edef; font-size:1em; font-weight:600;">Panorama Global (Multi-Ticket)</h4>
+        <button id="wa-back-btn" class="wa-back-btn">Cerrar Panorama</button>
+      </div>
+      <div id="wa-multi-container" class="wa-multi-container"></div>
+    `;
+    
+    document.getElementById("wa-back-btn").addEventListener("click", () => {
+      document.getElementById("fire-main-view").style.display = "block";
+      document.getElementById("fire-whatsapp-view").style.display = "none";
+    });
+
+    const multiContainer = document.getElementById("wa-multi-container");
+
+    // Detectar portal actual
+    const storage = await new Promise(resolve => chrome.storage.local.get(['firePortalName', 'fireOrgId'], resolve));
+    
+    let portalName = storage.firePortalName || "emchile"; 
+    const manualOrgId = storage.fireOrgId || "";
+
+    if (!storage.firePortalName) {
+        const pathParts = window.location.pathname.split('/');
+        if (pathParts.length > 2 && pathParts[1] === 'support') {
+            portalName = pathParts[2];
+        }
+    }
+
+    // Preparar columnas
+    for (let i = 0; i < summaryTbody.children.length; i++) {
+       const row = summaryTbody.children[i];
+       let internalId = row.querySelector('.internal-id')?.textContent;
+       const ticketId = row.cells[2].textContent.trim();
+       const ticketSubject = row.cells[5].textContent.trim();
+       
+       if (!internalId) continue;
+
+       const containerId = `wa-container-${internalId}`;
+       multiContainer.innerHTML += `
+         <div class="wa-ticket-column">
+           <div class="wa-column-header">
+             <div style="font-weight: bold; color: #e9edef; font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ticketId}</div>
+             <div style="color: #8696a0; font-size: 0.7em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ticketSubject}</div>
+           </div>
+           <div class="wa-container" id="${containerId}">
+              <div style="text-align:center; padding:50px 20px; color:#8696a0; font-size: 0.8em;">Cargando historial...</div>
+           </div>
+         </div>
+       `;
+    }
+
+    const csrf = (() => {
+      const match = document.cookie.match(/iamcsr=([^;]+)/) || document.cookie.match(/_zcsr_tmp=([^;]+)/);
+      return match ? match[1] : "";
+    })();
+
+    // Procesar todos los tickets simultáneamente
+    for (let i = 0; i < summaryTbody.children.length; i++) {
+        const row = summaryTbody.children[i];
+        const internalId = row.querySelector('.internal-id')?.textContent;
+        if (!internalId) continue;
+        
+        const containerId = `wa-container-${internalId}`;
+
+        try {
+            const endpoints = [
+                `/supportapi/zd/${portalName}/api/v1/tickets/${internalId}/threads?limit=100`,
+                `/api/v1/tickets/${internalId}/threads?limit=100`,
+                `https://${window.location.hostname}/supportapi/zd/${portalName}/api/v1/tickets/${internalId}/threads?limit=100`
+            ];
+            
+            let data = null;
+            const headers = { 'Accept': 'application/json, text/plain, */*' };
+            if (csrf) headers['X-ZCSRF-TOKEN'] = `iamcsr=${csrf}`;
+            if (manualOrgId) headers['orgid'] = manualOrgId;
+
+            for (let url of endpoints) {
+                try {
+                    const res = await fetch(url, { headers });
+                    if (res.ok) {
+                        const json = await res.json();
+                        data = json.data || json;
+                        if (data) break;
+                    }
+                } catch(e) {}
+            }
+
+            if (!data) throw new Error("Acceso denegado o no encontrado");
+
+            let msgs = [];
+            const threads = Array.isArray(data) ? data : [data];
+            
+            for (const t of threads) {
+                const author = t.author || {};
+                const senderName = author.name || t.sender || "Desconocido";
+                const d = new Date(t.createdTime);
+                const timeStr = t.createdTime ? `${d.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : "";
+                
+                let rawText = t.content || "";
+                
+                if (!rawText && t.id) {
+                    try {
+                        const threadUrl = `/supportapi/zd/${portalName}/api/v1/tickets/${internalId}/threads/${t.id}`;
+                        const tRes = await fetch(threadUrl, { headers });
+                        if (tRes.ok) {
+                            const tJson = await tRes.json();
+                            if (tJson) rawText = tJson.content || tJson.summary || "";
+                        }
+                    } catch(e) {}
+                }
+
+                if (!rawText) rawText = t.summary || "";
+
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = rawText;
+                
+                const quotes = tempDiv.querySelectorAll('blockquote, .gmail_quote, .zmail_extra, .zd-quoted-text');
+                let bodyText = "";
+                
+                if (quotes.length > 0) {
+                    const clone = tempDiv.cloneNode(true);
+                    clone.querySelectorAll('blockquote, .gmail_quote, .zmail_extra, .zd-quoted-text').forEach(e => e.remove());
+                    bodyText = clone.innerText.trim();
+                    if (bodyText.length < 10) bodyText = tempDiv.innerText.trim();
+                } else {
+                    bodyText = tempDiv.innerText.trim();
+                }
+                
+                if (bodyText.length < 5 && t.summary && !bodyText.includes('...')) {
+                    bodyText = t.summary.trim();
+                }
+
+                const isAgent = author.type === "AGENT" || 
+                                senderName.toLowerCase().includes("soporte") || 
+                                senderName.toLowerCase().includes("emchile") || 
+                                senderName.toLowerCase().includes("piero") ||
+                                senderName.toLowerCase().includes("administrador");
+
+                if (bodyText.length > 2) {
+                    msgs.push({
+                        sender: senderName,
+                        body: bodyText,
+                        time: timeStr,
+                        type: isAgent ? 'out' : 'in'
+                    });
+                }
+            }
+
+            msgs.reverse(); // Cronológico
+            renderWhatsAppConversation(msgs, containerId);
+
+        } catch(err) {
+            document.getElementById(containerId).innerHTML = `<div style="color:#f15c5c; padding:20px; font-size: 0.8em; text-align:center;">Error API: ${err.message}</div>`;
+        }
+    }
+  }
+
+  function handleFirePlay2Step2() {
+    // Asegurarnos de que el menú esté abierto
+    if (!fireMenuOpen) {
+      fireMenuOpen = true;
+      fireMenu.classList.add("fire-open");
+    }
+
+    // Mostrar sección de WhatsApp sin ocultar lo demás
+    const waView = document.getElementById("fire-whatsapp-view");
+    const container = document.getElementById("wa-container");
+    
+    if (waView) waView.style.display = "block";
+    
+    if (container) {
+      container.innerHTML = `
+        <div id="wa-loading-state" style="text-align:center; padding:30px 10px; color:#ffaaaa; font-style:italic; font-size:0.85em;">
+          <div style="font-size:1.5em; margin-bottom:5px; animation: pulse 1.5s infinite;">⚡</div>
+          Generando chat...
+        </div>
+      `;
+    }
+
+    let retries = 0;
+    const maxRetries = 20; // 10 seconds total
+    let lastMsgsLength = 0;
+    let stableCount = 0;
+    let bestMsgs = [];
+
+    const pollInterval = setInterval(() => {
+      // 1. Estrategia de Fuerza Bruta: Buscar contenedores que tengan clases "collapse" o "collapsed"
+      // y que parezcan ser hilos de mensajes (contienen avatar, nombre, fecha, etc).
+      const allCollapsed = Array.from(document.querySelectorAll('.is-collapsed, .collapsed, [class*="collapse"]')).filter(el => {
+        if (el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+        // Debe ser un hilo de conversación: verificamos si contiene elementos de usuario/tiempo
+        return el.querySelector('[class*="avatar" i], [class*="name" i], [class*="author" i], [class*="time" i], [class*="date" i], [class*="preview" i], [class*="header" i], [class*="user" i]');
+      });
+
+      // 2. Hacer clic agresivo en el contenedor y sus hijos visibles
+      // Esto asegura que le daremos al nodo exacto que tiene el onClick en React
+      allCollapsed.forEach(wrapper => {
+        const targets = [wrapper, ...Array.from(wrapper.querySelectorAll('div, span, a, svg, button'))];
+        targets.forEach(t => {
+          if (t.offsetWidth > 0 || t.offsetHeight > 0) {
+            try {
+              t.click();
+              t.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+              t.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+            } catch(e) {}
+          }
+        });
+      });
+
+      // 3. También buscar botones explícitos de "Mostrar más" o "Expandir todo"
+      const extraButtons = document.querySelectorAll(
+        '[data-id="expandAll"], button[aria-label*="Expand" i], button[title*="Expand" i], ' +
+        '.show-more, .read-more, [class*="showMore" i], [class*="readMore" i], .zd-thread-expand-icon, ' +
+        '.zd-comment-expand, .zd-show-more, .zd-load-more'
+      );
+      extraButtons.forEach(btn => {
+        if (btn.offsetWidth > 0 || btn.offsetHeight > 0) {
+           try { 
+             btn.click(); 
+             btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); 
+             btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true })); 
+           } catch(e){}
+        }
+      });
+
+      // 4. Evaluar cuántos hilos colapsados quedan
+      const remainingCollapsed = allCollapsed.length;
+      const areAllExpanded = remainingCollapsed === 0;
+
+      const msgs = extractConversationStructured();
+      retries++;
+
+      if (msgs.length > lastMsgsLength) {
+        lastMsgsLength = msgs.length;
+        bestMsgs = msgs;
+        stableCount = 0;
+      } else if (msgs.length > 0 && msgs.length === lastMsgsLength && areAllExpanded) {
+        // Solo declaramos estabilidad si ya no quedan hilos colapsados en el DOM
+        stableCount++;
+      }
+
+      // Si tenemos mensajes y se han estabilizado por 4 ciclos (2 segundos), o si llegamos al limite de reintentos
+      if ((msgs.length > 0 && stableCount >= 4) || (retries >= maxRetries && bestMsgs.length > 0)) {
+        clearInterval(pollInterval);
+        fireLog(`Éxito: ${bestMsgs.length} mensajes encontrados y estabilizados.`);
+        renderWhatsAppConversation(bestMsgs);
+      } else if (retries >= maxRetries && bestMsgs.length === 0) {
+        clearInterval(pollInterval);
+        fireLog("Error: No se detectaron mensajes tras 10 segundos.");
+        if (container) {
+          container.innerHTML = '<div style="text-align:center; padding:15px; color:#ffaaaa; font-size:0.8em;">No se detectaron mensajes en este ticket.</div>';
+        }
+      } else {
+        fireLog(`Polling mensajes (${retries}/${maxRetries})... Encontrados: ${msgs.length} (Estables: ${stableCount}/4)`);
+      }
+    }, 500);
+  }
+
+  function extractConversationStructured() {
+    // 1. Intentar encontrar contenedores de mensajes conocidos
+    const primarySelectors = [
+      ".zd-comment-unit", ".threadItem", ".reply-item", ".zd-thread-item",
+      ".zgh-userMsg", ".comment-item", ".mail-message-item", ".conversation-item",
+      ".zd-comment", ".Thread-item", ".ticket-thread", "article[class*='message']"
+    ];
+    
+    let nodes = [];
+    for (const sel of primarySelectors) {
+      const found = document.querySelectorAll(sel);
+      if (found.length > 0) {
+        // Filtrar wrappers y nodos colapsados
+        nodes = Array.from(found).filter(n => {
+          // Ignorar si tiene nodos hijos del mismo tipo (es un wrapper gigante)
+          if (n.querySelectorAll(sel).length > 0) return false;
+          // Ignorar si está dentro de un hilo colapsado (evita extraer las previsualizaciones truncadas)
+          if (n.closest('.is-collapsed, .collapsed, .thread-collapsed, .zd-comment-collapsed, .conversation-collapsed')) return false;
+          return true;
+        });
+        if (nodes.length > 0) break;
+      }
+    }
+
+    // 2. Fallback Deep Scan si lo anterior falló
+    if (nodes.length === 0) {
+      fireLog("Deep Scan: Buscando bloques por atributos...");
+      const allPossible = document.querySelectorAll('div[class*="comment"], div[class*="thread"], div[class*="message"]');
+      nodes = Array.from(allPossible).filter(n => {
+        // Ignorar colapsados
+        if (n.closest('.is-collapsed, .collapsed, .thread-collapsed, .zd-comment-collapsed, .conversation-collapsed')) return false;
+        
+        // No queremos contenedores padre
+        const hasChildSimilar = n.querySelector('div[class*="comment"], div[class*="thread"], div[class*="message"]');
+        if (hasChildSimilar) return false;
+        
+        const hasDirectText = n.childNodes.length > 0 && Array.from(n.childNodes).some(c => c.nodeType === 3 && c.textContent.trim().length > 10);
+        return hasDirectText || n.innerText.length < 2000;
+      });
+    }
+
+    const msgs = [];
+    const seenCanonical = new Set();
+
+    nodes.forEach((originalNode) => {
+      // Clonar para limpiar sin alterar el DOM real
+      const clone = originalNode.cloneNode(true);
+
+      // Eliminar el historial citado (correos anteriores) y botones ocultos
+      const removeSelectors = [
+        'blockquote', '.gmail_quote', '.zmail_extra', '.zd-quoted-text', 
+        '.quote', '[data-zbl]', '.original-message',
+        '[class*="show-more"]', '[class*="expand"]', 'button', '.zd-comment-expand',
+        '.zd-thread-expand-icon', 'style', 'script'
+      ];
+      removeSelectors.forEach(sel => {
+        clone.querySelectorAll(sel).forEach(el => el.remove());
+      });
+
+      const rawText = clone.innerText.trim();
+      if (rawText.length < 15) return;
+      
+      // LLAVE CANÓNICA
+      const canonical = rawText.replace(/[^a-z0-9]/gi, "").substring(0, 150);
+      if (seenCanonical.has(canonical)) return;
+      seenCanonical.add(canonical);
+
+      // --- SENDER ---
+      const senderEl = clone.querySelector(
+        ".zd-comment-author, .sender-name, .from-name, .author-name, .name, .zgh-userName, .zd-author-name"
+      );
+      
+      let sender = senderEl?.textContent.trim();
+      
+      if (!sender) {
+        const header = clone.querySelector('[class*="header"], .zd-comment-header');
+        if (header) sender = header.innerText.split(/\n|·|\|/)[0].trim();
+      }
+
+      if (!sender) {
+        const firstLine = clone.innerText.split('\n')[0].trim();
+        if (firstLine.length > 2 && firstLine.length < 40) sender = firstLine;
+      }
+
+      sender = (sender || "Remitente").split('<')[0].trim();
+
+      // --- BODY ---
+      const bodySelectors = [
+        ".zd-comment-content", ".mail-content", ".zgh-userMsgText", ".comment-text", 
+        ".zd-comment-body", '[class*="body"]', '[class*="content"]'
+      ];
+      
+      let bodyEl = null;
+      for (const sel of bodySelectors) {
+        bodyEl = clone.querySelector(sel);
+        if (bodyEl && bodyEl.innerText.trim().length > 5) break;
+      }
+
+      let body = bodyEl ? bodyEl.innerText : clone.innerText;
+      
+      if (body.startsWith(sender)) {
+        body = body.substring(sender.length).trim();
+      }
+
+      // Limpiar headers técnicos y ruidos conocidos
+      const noiseKeywords = [
+        "user-agent:", "message-id:", "received:", "content-type:", "mime-version:",
+        "x-zoho", "boundary=", "diagnostic-code:", "reporting-mta:", 
+        "( respondido en", "original-recipient:", "mailer-daemon"
+      ];
+      
+      if (noiseKeywords.some(k => body.toLowerCase().includes(k))) return;
+      
+      body = body.replace(/\s+/g, " ").trim();
+      
+      // Filtro de seguridad: ignorar si el cuerpo es demasiado corto o son solo fragmentos de la UI
+      if (body.length < 20) return;
+      if (body.split(/\s+/).length < 4) return; // Menos de 4 palabras no es un mensaje real
+
+      // --- TYPE (In/Out) ---
+      const isAgent = sender.toLowerCase().includes("soporte") || 
+                      sender.toLowerCase().includes("emchile") || 
+                      sender.toLowerCase().includes("piero") || 
+                      sender.toLowerCase().includes("administrador") ||
+                      originalNode.classList.contains("agent-reply") ||
+                      originalNode.querySelector('[class*="agent"]') !== null ||
+                      originalNode.querySelector('.zd-comment-private') !== null;
+      
+      // --- TIME ---
+      const timeEl = originalNode.querySelector('time[datetime], [class*="time"], [class*="date"], .zd-comment-date');
+      const timeStr = timeEl ? (timeEl.getAttribute("datetime") || timeEl.innerText.trim()) : "";
+
+      if (body.length < 20000) {
+        msgs.push({
+          sender: sender.split('<')[0].trim().substring(0, 20), 
+          body: body,
+          time: timeStr,
+          type: isAgent ? 'out' : 'in'
+        });
+      }
+    });
+
+    // Invertir para que los mensajes más antiguos queden arriba (orden cronológico)
+    // Usualmente Zoho muestra el último mensaje arriba (descendente)
+    return msgs.reverse();
+  }
+
+  function renderWhatsAppConversation(msgs, containerId = "wa-container") {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    container.innerHTML = "";
+
+    if (!msgs || msgs.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:30px 10px; color:#8696a0; font-style:italic; font-size:0.8em;">
+          No se encontraron mensajes en este ticket.
+        </div>
+      `;
+      return;
+    }
+
+    const colors = [
+      "#34b7f1", "#ff5b5b", "#5cdb5c", "#ffcc00", "#a855f7", "#ec4899", "#3b82f6", "#10b981", "#f97316", "#06b6d4"
+    ];
+    const getColor = (name) => {
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+      return colors[Math.abs(hash) % colors.length];
+    };
+
+    msgs.forEach(m => {
+      const msgDiv = document.createElement("div");
+      msgDiv.className = `wa-msg ${m.type}`;
+      
+      const senderColor = getColor(m.sender);
+      
+      msgDiv.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div class="wa-msg-header" style="background: ${senderColor};">${m.sender}</div>
+            <span class="wa-msg-time-badge">${m.time}</span>
+          </div>
+          <button class="wa-minimize-btn" style="background:transparent; border:none; color:#8696a0; cursor:pointer; font-size:14px; font-weight:bold;">−</button>
+        </div>
+        <div class="wa-text">${m.body}</div>
+      `;
+      
+      const minBtn = msgDiv.querySelector(".wa-minimize-btn");
+      const textDiv = msgDiv.querySelector(".wa-text");
+      minBtn.addEventListener("click", () => {
+        const isCollapsed = textDiv.classList.toggle("collapsed");
+        minBtn.textContent = isCollapsed ? "+" : "−";
+      });
+
+      container.appendChild(msgDiv);
+    });
+
+    // Scroll to bottom
+    setTimeout(() => {
+      container.scrollTop = container.scrollHeight;
+    }, 200);
+  }
+
 
   function handleFabClick() {
     if (fireMenuOpen) {
