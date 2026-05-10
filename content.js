@@ -21,19 +21,24 @@
   let isResizing = false;
   let resizerEl = null;
 
-  let fireMenuWidth = 400;
-  let fireMenuHeight = 500;
+  let fireMenuWidth = 450;
+  let fireMenuHeight = 600;
+  let fireMenuX = 20;
+  let fireMenuY = 20;
 
   // ─── INIT ──────────────────────────────────────────────────────────────────
   function init() {
-    chrome.storage.local.get(["emchileSidebarWidth", "emchileFireMenuWidth", "emchileFireMenuHeight", "emchileFireDebugLogs", "emchileFireSummaryTable", "emchileFireOcInput"], (res) => {
+    chrome.storage.local.get(["emchileSidebarWidth", "emchileFireMenuWidth", "emchileFireMenuHeight", "emchileFireMenuX", "emchileFireMenuY", "emchileFireDebugLogs", "emchileFireSummaryTable", "emchileFireOcInput"], (res) => {
       sidebarWidth = res.emchileSidebarWidth || 500;
-      fireMenuWidth = res.emchileFireMenuWidth || 400;
-      fireMenuHeight = res.emchileFireMenuHeight || 500;
+      fireMenuWidth = res.emchileFireMenuWidth || 450;
+      fireMenuHeight = res.emchileFireMenuHeight || 600;
+      fireMenuX = res.emchileFireMenuX || 20;
+      fireMenuY = res.emchileFireMenuY || 20;
+      
       applyWidth(sidebarWidth);
       injectStyles();
       injectUI();
-      applyFireMenuSize(fireMenuWidth, fireMenuHeight);
+      applyFireMenuSize(fireMenuWidth, fireMenuHeight, fireMenuX, fireMenuY);
 
       if (res.emchileFireOcInput) {
         const ocInputEl = document.getElementById("fire-oc-input");
@@ -153,7 +158,7 @@
       }
       #emchile-resizer.resizer-open { display: block; }
 
-      /* FIRE FAB & MENU */
+      /* FIRE FAB & MENU - BLUE SKY REDESIGN */
       #emchile-fire-fab {
         position: fixed;
         right: 20px;
@@ -163,44 +168,49 @@
         flex-direction: column;
         align-items: center;
         gap: 5px;
-        background: linear-gradient(160deg, #500000 0%, #d00000 100%);
-        border: 1px solid rgba(255, 77, 77, 0.55);
+        background: linear-gradient(160deg, #0ea5e9 0%, #0369a1 100%);
+        border: 1px solid rgba(56, 189, 248, 0.55);
         border-radius: 14px;
         padding: 14px 10px;
         cursor: pointer;
         user-select: none;
         transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
-        box-shadow: 0 0 22px rgba(208, 0, 0, 0.3), 0 6px 24px rgba(0,0,0,0.5);
+        box-shadow: 0 0 22px rgba(14, 165, 233, 0.3), 0 6px 24px rgba(0,0,0,0.5);
         min-width: 60px;
       }
       #emchile-fire-fab:hover {
-        border-color: rgba(255, 77, 77, 0.8);
-        box-shadow: 0 0 32px rgba(255, 77, 77, 0.6), 0 6px 24px rgba(0,0,0,0.55);
+        border-color: rgba(56, 189, 248, 0.8);
+        box-shadow: 0 0 32px rgba(56, 189, 248, 0.6), 0 6px 24px rgba(0,0,0,0.55);
+        transform: translateY(-2px);
       }
-      #emchile-fire-fab .ef-icon { font-size: 22px; line-height: 1; filter: drop-shadow(0 0 5px rgba(255, 77, 77, 0.9)); }
+      #emchile-fire-fab .ef-icon { font-size: 22px; line-height: 1; filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.9)); }
       #emchile-fire-fab .ef-text {
-        font-family: 'Menlo','Courier New',monospace;
-        font-size: 9px; font-weight: 700;
-        color: #ffcccc; letter-spacing: 1.5px; text-transform: uppercase;
-        text-shadow: 0 0 8px rgba(255, 77, 77, 0.65);
+        font-family: 'Inter', 'Segoe UI', sans-serif;
+        font-size: 9px; font-weight: 800;
+        color: #e0f2fe; letter-spacing: 1.5px; text-transform: uppercase;
+        text-shadow: 0 0 8px rgba(56, 189, 248, 0.65);
       }
       #emchile-fire-menu {
         position: fixed;
-        left: 20px;
-        top: 20px;
-        width: var(--emchile-fire-width, 95vw);
-        height: var(--emchile-fire-height, 90vh);
+        left: var(--emchile-fire-x, 20px);
+        top: var(--emchile-fire-y, 20px);
+        width: var(--emchile-fire-width, 450px);
+        height: var(--emchile-fire-height, 600px);
         z-index: 2147483645;
-        background: #111b21;
-        border: 1px solid #222;
-        border-radius: 12px;
-        box-shadow: 0 10px 50px rgba(0,0,0,0.8);
+        background: #0f172a;
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         display: none;
         flex-direction: column;
         overflow: hidden;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        color: #e9edef;
+        font-family: 'Inter', system-ui, sans-serif;
+        color: #f1f5f9;
         transition: opacity 0.3s ease;
+      }
+      #emchile-fire-menu.fire-open {
+        display: flex !important;
+        opacity: 1;
       }
       /* Custom Scrollbar */
       #emchile-fire-menu ::-webkit-scrollbar {
@@ -211,49 +221,48 @@
         background: transparent;
       }
       #emchile-fire-menu ::-webkit-scrollbar-thumb {
-        background: #333;
+        background: #334155;
         border-radius: 10px;
       }
       #emchile-fire-menu ::-webkit-scrollbar-thumb:hover {
-        background: #444;
+        background: #475569;
       }
       #fire-main-view {
         flex: 1;
         overflow-y: auto;
-        padding: 0 15px 15px 15px;
-      }
-      #emchile-fire-menu * {
-        box-sizing: border-box;
-      }
-      #emchile-fire-menu.fire-open {
-        display: flex !important;
-        opacity: 1;
-        pointer-events: auto;
-        transform: translateX(0);
+        padding: 0 20px 20px 20px;
       }
       #emchile-fire-menu input {
         width: 100%;
-        padding: 8px;
+        padding: 10px 12px;
         margin-bottom: 10px;
-        background: rgba(0,0,0,0.5);
-        border: 1px solid #ff4d4d;
-        color: #fff;
-        border-radius: 4px;
-        font-family: monospace;
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #f8fafc;
+        border-radius: 8px;
+        font-size: 13px;
+        transition: border-color 0.2s;
+      }
+      #emchile-fire-menu input:focus {
+        border-color: #38bdf8;
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
       }
       #emchile-fire-menu button {
         width: 100%;
         padding: 10px;
-        background: #d00000;
+        background: #0ea5e9;
         color: #fff;
         border: none;
-        border-radius: 4px;
+        border-radius: 8px;
         cursor: pointer;
-        font-weight: bold;
-        text-transform: uppercase;
+        font-weight: 600;
+        font-size: 13px;
+        transition: all 0.2s;
       }
       #emchile-fire-menu button:hover {
-        background: #ff0000;
+        background: #0284c7;
+        transform: translateY(-1px);
       }
       #emchile-fire-table-container {
         margin-top: 15px;
@@ -274,29 +283,39 @@
       /* New Table & Debug Collapsible */
       .fire-summary-table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         margin-top: 5px;
-        background: rgba(0,0,0,0.4);
+        background: #1e293b;
+        border-radius: 8px;
+        overflow: hidden;
       }
       .fire-summary-table th, .fire-summary-table td {
-        border: 1px solid #800;
-        padding: 4px;
+        border-bottom: 1px solid #334155;
+        padding: 10px 12px;
         text-align: left;
       }
       .fire-summary-table th {
-        background: #500;
-        color: #ffaaaa;
+        background: #334155;
+        color: #38bdf8;
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.5px;
       }
       #emchile-fire-debug-toggle {
         cursor: pointer;
-        background: rgba(255,255,255,0.05);
-        padding: 5px;
-        border-radius: 4px;
+        background: #1e293b;
+        padding: 10px 15px;
+        border-radius: 8px;
         display: flex;
         justify-content: space-between;
+        align-items: center;
+        border: 1px solid #334155;
+        margin-top: 10px;
       }
       #emchile-fire-debug-toggle:hover {
-        background: rgba(255,255,255,0.1);
+        background: #334155;
       }
       #emchile-fire-resizer {
         position: absolute;
@@ -317,27 +336,27 @@
         z-index: 100;
       }
       .fire-find-section {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 77, 77, 0.3);
-        border-radius: 8px;
-        padding: 10px;
+        background: linear-gradient(135deg, rgba(14, 165, 233, 0.1) 0%, rgba(14, 165, 233, 0.02) 100%);
+        border: 1px solid rgba(14, 165, 233, 0.2);
+        border-radius: 12px;
+        padding: 15px;
         margin-bottom: 15px;
         position: relative;
+        backdrop-filter: blur(10px);
       }
       .fire-find-label {
-        font-size: 0.75em;
+        font-size: 0.7em;
         font-weight: 800;
-        color: #ffaaaa;
+        color: #38bdf8;
         margin-bottom: 5px;
         text-transform: uppercase;
-        letter-spacing: 1px;
-        opacity: 0.8;
+        letter-spacing: 2px;
       }
-      #emchile-fire-menu h4 { font-size: 0.9em; }
+      #emchile-fire-menu h4 { font-size: 0.9em; font-weight: 700; color: #38bdf8; }
       #emchile-fire-menu input { font-size: 0.9em; }
       #emchile-fire-menu button { font-size: 1em; }
-      .fire-summary-table { font-size: 0.85em; }
-      #emchile-fire-debug-content { font-size: 0.85em; }
+      .fire-summary-table { font-size: 0.8em; }
+      #emchile-fire-debug-content { font-size: 0.8em; }
 
       /* WhatsApp Styles */
       .wa-multi-container {
@@ -345,36 +364,37 @@
         flex-direction: row;
         gap: 20px;
         overflow-x: auto;
-        padding: 15px;
-        background: #0b141a;
+        padding: 20px;
+        background: #0f172a;
         min-height: 400px;
       }
       .wa-ticket-column {
-        min-width: 380px;
-        max-width: 450px;
-        height: 600px;
+        min-width: 400px;
+        max-width: 480px;
+        height: 650px;
         display: flex;
         flex-direction: column;
-        border: 1px solid #222;
-        border-radius: 12px;
-        background: #111b21;
+        border: 1px solid rgba(56, 189, 248, 0.15);
+        border-radius: 16px;
+        background: #1e293b;
         overflow: hidden;
         flex-shrink: 0;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
       }
       .wa-column-header {
-        padding: 12px 15px;
-        background: #202c33;
-        border-bottom: 1px solid #222;
+        padding: 15px 20px;
+        background: #334155;
+        border-bottom: 1px solid rgba(56, 189, 248, 0.1);
       }
       .wa-container {
         flex: 1;
         overflow-y: auto;
-        padding: 15px;
+        padding: 20px;
         display: flex;
         flex-direction: column;
         background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
-        background-blend-mode: overlay;
-        background-color: #0b141a;
+        background-blend-mode: soft-light;
+        background-color: #0f172a;
       }
       .wa-msg {
         max-width: 85%;
@@ -388,32 +408,35 @@
       }
       .wa-msg.in {
         align-self: flex-start;
-        background: #202c33;
-        color: #e9edef;
+        background: #1e293b;
+        color: #f1f5f9;
         border-top-left-radius: 0;
+        border: 1px solid rgba(255,255,255,0.03);
       }
       .wa-msg.out {
         align-self: flex-end;
-        background: #005c4b;
-        color: #e9edef;
+        background: #0ea5e9;
+        color: #fff;
         border-top-right-radius: 0;
+        box-shadow: 0 4px 12px rgba(14, 165, 233, 0.2);
       }
       .wa-msg-header {
         display: inline-block;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-size: 0.85em;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.8em;
         font-weight: bold;
         color: #fff;
         text-shadow: 0 1px 2px rgba(0,0,0,0.3);
       }
       .wa-msg-time-badge {
         display: inline-block;
-        background: rgba(0, 0, 0, 0.25);
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 0.8em;
+        background: rgba(0, 0, 0, 0.2);
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 0.75em;
         color: #8696a0;
+        font-weight: 600;
       }
       .wa-minimize-btn {
         opacity: 0.4;
@@ -464,41 +487,47 @@
     fireMenu = document.createElement("div");
     fireMenu.id = "emchile-fire-menu";
     fireMenu.innerHTML = `
-      <div id="emchile-fire-resizer"></div>
-      <div id="emchile-fire-resizer-v"></div>
-
-      <div class="fire-find-section" style="margin: 15px 15px 0 15px;">
-        <div class="fire-find-label">FIND1</div>
-        <div style="font-size:0.9em; opacity:0.6; font-style:italic;">Buscador rápido activo...</div>
+      <div id="emchile-fire-drag-handle" style="display:flex; justify-content:space-between; align-items:center; padding: 12px 15px; background: rgba(14, 165, 233, 0.1); border-bottom: 1px solid rgba(56, 189, 248, 0.2); cursor: move; user-select:none;">
+        <div style="display:flex; align-items:center; gap:8px; pointer-events:none;">
+          <span style="font-size:16px;">🔥</span>
+          <span style="font-weight:700; color:#38bdf8; letter-spacing:0.5px; font-size:11px; text-transform:uppercase;">Fire Dashboard</span>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <div id="fire-config-gear" title="Configuración" style="cursor:pointer; font-size:16px; opacity:0.6; transition:opacity 0.2s;">⚙️</div>
+          <div id="fire-close-x" style="cursor:pointer; font-size:18px; opacity:0.5; font-weight:bold;">×</div>
+        </div>
       </div>
 
-      <div style="padding: 0 15px;">
-        <input type="text" id="fire-oc-input" placeholder="Pegar OC (ej. 1234-56-AG25)" style="margin-top:10px;" />
-      </div>
-      
+      <div id="emchile-fire-resizer-h" style="position:absolute; right:0; top:0; width:6px; height:100%; cursor:ew-resize; z-index:10;"></div>
+      <div id="emchile-fire-resizer-v" style="position:absolute; bottom:0; left:0; width:100%; height:6px; cursor:ns-resize; z-index:10;"></div>
+
       <div id="fire-main-view">
-        <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <div style="padding: 15px 0 0 0;">
+          <input type="text" id="fire-oc-input" placeholder="Pegar OC (ej. 1234-56-AG25)" />
+        </div>
+        
+        <div style="display:flex; gap:8px; margin-bottom:15px;">
           <button id="fire-play-btn" style="flex:1;">PLAY X1</button>
-          <button id="fire-play2-btn" style="flex:1; background:#005cc5;">PLAY X2</button>
+          <button id="fire-play2-btn" style="flex:1; background:#0369a1;">PLAY X2</button>
         </div>
 
-        <!-- Debug Collapsible -->
-        <div style="margin-top: 15px;">
-          <div id="emchile-fire-debug-toggle">
-            <h4 style="margin:0; color:#ffaaaa;">Tabla Ejecución (Debug)</h4>
-            <span id="fire-debug-arrow">▶</span>
-          </div>
-          <div id="emchile-fire-debug-content" style="display:none; margin-top:5px; max-height:100px; overflow-y:auto; border: 1px solid #800; border-radius: 4px; background: rgba(0,0,0,0.3);">
-            <table id="emchile-fire-debug-table" style="width:100%; border-collapse:collapse;">
-              <tbody style="font-family: monospace;"></tbody>
-            </table>
-          </div>
+        <!-- API Config (Hidden by default) -->
+        <div id="emchile-fire-config-panel" style="display:none; margin-bottom: 15px; border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px; padding: 12px; background: rgba(14, 165, 233, 0.05);">
+            <h4 style="margin:0 0 10px 0; color:#38bdf8; font-size:0.8em; text-transform:uppercase;">⚙️ Configuración API</h4>
+            <div style="margin-bottom:10px;">
+              <label style="display:block; font-size:0.7em; color:#94a3b8; margin-bottom:3px;">Portal Name</label>
+              <input type="text" id="fire-portal-input" placeholder="p.ej imcsupplier" style="margin-bottom:0;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:0.7em; color:#94a3b8; margin-bottom:3px;">Org ID</label>
+              <input type="text" id="fire-orgid-input" placeholder="p.ej 854243902" style="margin-bottom:0;" />
+            </div>
         </div>
 
         <!-- New Summary Table -->
-        <div style="margin-top: 15px;">
-          <h4 style="margin:0 0 5px 0; color:#ffaa55;">Opciones Encontradas (v1.2)</h4>
-          <div style="max-height:150px; overflow-y:auto; border:1px solid #850; border-radius:4px;">
+        <div id="fire-summary-section">
+          <h4 style="margin:0 0 8px 0; color:#38bdf8; font-size:0.8em; text-transform:uppercase;">Opciones Encontradas</h4>
+          <div style="max-height:250px; overflow-y:auto; border:1px solid #334155; border-radius:8px; background: #1e293b;">
             <table id="emchile-fire-summary-table" class="fire-summary-table">
               <thead>
                 <tr>
@@ -514,27 +543,8 @@
           </div>
         </div>
 
-        <!-- API Config Collapsible -->
-        <div style="margin-top: 15px; border: 1px solid #ffaa55; border-radius: 6px; padding: 5px; background: rgba(255, 170, 85, 0.1);">
-          <div id="emchile-fire-config-toggle" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:5px;">
-            <h4 style="margin:0; color:#ffaa55; font-size:0.85em;">⚙️ CONFIGURACIÓN NECESARIA</h4>
-            <span id="fire-config-arrow" style="font-size:0.8em;">▼</span>
-          </div>
-          <div id="emchile-fire-config-content" style="display:block; margin-top:5px; padding:8px; border-top: 1px solid rgba(255,170,85,0.3);">
-            <div style="margin-bottom:8px;">
-              <label style="display:block; font-size:0.7em; color:#888; margin-bottom:2px;">Portal Name (ej. imcsupplier)</label>
-              <input type="text" id="fire-portal-input" placeholder="Portal Name" style="width:100%; background:#222; border:1px solid #444; color:#fff; font-size:0.8em; padding:3px; border-radius:3px;" />
-            </div>
-            <div>
-              <label style="display:block; font-size:0.7em; color:#888; margin-bottom:2px;">Org ID (ej. 854243902)</label>
-              <input type="text" id="fire-orgid-input" placeholder="Org ID" style="width:100%; background:#222; border:1px solid #444; color:#fff; font-size:0.8em; padding:3px; border-radius:3px;" />
-            </div>
-            <div style="font-size:0.65em; color:#666; margin-top:5px; font-style:italic;">* Solo llena esto si el PLAY X2 da error 403/401.</div>
-          </div>
-        </div>
-
         <div id="fire-whatsapp-view" style="display:none; margin-top: 20px;">
-          <h4 style="margin:0 0 8px 0; color:#ffaaaa;">Conversación WhatsApp</h4>
+          <h4 style="margin:0 0 8px 0; color:#38bdf8; font-size:0.8em; text-transform:uppercase;">Conversación WhatsApp</h4>
           <div class="wa-container" id="wa-container">
             <!-- WhatsApp messages will be injected here -->
           </div>
@@ -543,37 +553,64 @@
     `;
     document.body.appendChild(fireMenu);
 
-    // Toggle Debug
-    const debugToggle = document.getElementById("emchile-fire-debug-toggle");
-    const debugContent = document.getElementById("emchile-fire-debug-content");
-    const debugArrow = document.getElementById("fire-debug-arrow");
-    debugToggle.addEventListener("click", () => {
-      const isHidden = debugContent.style.display === "none";
-      debugContent.style.display = isHidden ? "block" : "none";
-      debugArrow.textContent = isHidden ? "▼" : "▶";
+    // Toggle API Config via Gear
+    const configGear = document.getElementById("fire-config-gear");
+    const configPanel = document.getElementById("emchile-fire-config-panel");
+    configGear.addEventListener("click", () => {
+      const isHidden = configPanel.style.display === "none";
+      configPanel.style.display = isHidden ? "block" : "none";
+      configGear.style.opacity = isHidden ? "1" : "0.6";
+    });
+
+    const closeX = document.getElementById("fire-close-x");
+    closeX.addEventListener("click", () => {
+      fireMenuOpen = false;
+      fireMenu.classList.remove("fire-open");
+    });
+
+    // Drag Logic
+    const dragHandle = document.getElementById("emchile-fire-drag-handle");
+    let isDragging = false;
+    let dragStartX, dragStartY, initialLeft, initialTop;
+
+    dragHandle.addEventListener("mousedown", (e) => {
+      if (e.target.id === "fire-config-gear" || e.target.id === "fire-close-x") return;
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      initialLeft = fireMenu.offsetLeft;
+      initialTop = fireMenu.offsetTop;
+      document.body.style.cursor = "move";
+      e.preventDefault();
     });
 
     // Fire Resizer Logic
-    const fireResizer = document.getElementById("emchile-fire-resizer");
-    let isFireResizing = false;
-    fireResizer.addEventListener("mousedown", (e) => {
-      isFireResizing = true;
+    const fireResizerH = document.getElementById("emchile-fire-resizer-h");
+    let isFireResizingH = false;
+    fireResizerH.addEventListener("mousedown", (e) => {
+      isFireResizingH = true;
       document.body.style.cursor = "ew-resize";
       e.preventDefault();
     });
 
     window.addEventListener("mousemove", (e) => {
-      if (isFireResizing) {
-        const newWidth = e.clientX - 20; // Starts from left: 20
-        if (newWidth > 300 && newWidth < 1800) {
+      if (isDragging) {
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        fireMenu.style.left = (initialLeft + dx) + "px";
+        fireMenu.style.top = (initialTop + dy) + "px";
+      }
+      if (isFireResizingH) {
+        const newWidth = e.clientX - fireMenu.offsetLeft;
+        if (newWidth > 350 && newWidth < 1800) {
           fireMenuWidth = newWidth;
           applyFireMenuSize(fireMenuWidth, fireMenuHeight);
         }
       }
       if (isFireResizingV) {
-        const newHeight = e.clientY - 100; // Starts from top: 100
-        const maxH = window.innerHeight - 150; 
-        if (newHeight > 250 && newHeight < maxH) {
+        const newHeight = e.clientY - fireMenu.offsetTop;
+        const maxH = window.innerHeight - 50; 
+        if (newHeight > 300 && newHeight < maxH) {
           fireMenuHeight = newHeight;
           applyFireMenuSize(fireMenuWidth, fireMenuHeight);
         }
@@ -589,13 +626,16 @@
     });
 
     window.addEventListener("mouseup", () => {
-      if (isFireResizing || isFireResizingV) {
-        isFireResizing = false;
+      if (isDragging || isFireResizingH || isFireResizingV) {
+        isDragging = false;
+        isFireResizingH = false;
         isFireResizingV = false;
         document.body.style.cursor = "default";
         chrome.storage.local.set({ 
           emchileFireMenuWidth: fireMenuWidth,
-          emchileFireMenuHeight: fireMenuHeight
+          emchileFireMenuHeight: fireMenuHeight,
+          emchileFireMenuX: fireMenu.offsetLeft,
+          emchileFireMenuY: fireMenu.offsetTop
         });
       }
     });
@@ -619,16 +659,6 @@
         handleFirePlay2Click();
       });
     }
-
-    // Toggle API Config
-    const configToggle = document.getElementById("emchile-fire-config-toggle");
-    const configContent = document.getElementById("emchile-fire-config-content");
-    const configArrow = document.getElementById("fire-config-arrow");
-    configToggle.addEventListener("click", () => {
-      const isHidden = configContent.style.display === "none";
-      configContent.style.display = isHidden ? "block" : "none";
-      configArrow.textContent = isHidden ? "▼" : "▶";
-    });
 
     const portalInput = document.getElementById("fire-portal-input");
     const orgIdInput = document.getElementById("fire-orgid-input");
@@ -698,13 +728,16 @@
     chrome.storage.local.set({ emchileFireDebugLogs: tbody.innerHTML });
   }
 
-  function applyFireMenuSize(w, h) {
+  function applyFireMenuSize(w, h, x, y) {
     if (fireMenu) {
       fireMenu.style.width = w + "px";
       fireMenu.style.height = h + "px";
+      if (x !== undefined) fireMenu.style.left = x + "px";
+      if (y !== undefined) fireMenu.style.top = y + "px";
+      
       // Scale font-size: base 13px at 400px width.
       const baseFontSize = 13;
-      const scaledSize = Math.max(9, Math.min(22, (w / 400) * baseFontSize));
+      const scaledSize = Math.max(9, Math.min(20, (w / 450) * baseFontSize));
       fireMenu.style.fontSize = scaledSize + "px";
     }
   }
@@ -1116,17 +1149,44 @@
                                 senderName.toLowerCase().includes("piero") ||
                                 senderName.toLowerCase().includes("administrador");
 
+                const senderEmail = author.email || t.email || "";
+                const senderDisplay = senderEmail ? `${senderName} <${senderEmail}>` : senderName;
+
                 if (bodyText.length > 2) {
                     msgs.push({
-                        sender: senderName,
+                        sender: senderDisplay,
                         body: bodyText,
                         time: timeStr,
+                        rawTime: t.createdTime,
                         type: isAgent ? 'out' : 'in'
                     });
                 }
             }
 
             msgs.reverse(); // Cronológico
+            
+            // --- CALCULAR URGENCIA DEL FONDO DE LA COLUMNA ---
+            const column = document.getElementById(containerId)?.closest('.wa-ticket-column');
+            if (column && msgs.length > 0) {
+                const lastMsg = msgs[msgs.length - 1]; // El más reciente
+                if (lastMsg.rawTime) {
+                    const msgDate = new Date(lastMsg.rawTime);
+                    const now = new Date();
+                    const diffDays = (now - msgDate) / (1000 * 60 * 60 * 24);
+                    
+                    if (diffDays < 1) {
+                        column.style.background = "linear-gradient(180deg, #1e293b 0%, #064e3b 100%)"; // Tono Verde (Nuevo)
+                    } else if (diffDays < 3) {
+                        column.style.background = "linear-gradient(180deg, #1e293b 0%, #422006 100%)"; // Tono Amarillo/Ambar (Intermedio)
+                    } else {
+                        column.style.background = "linear-gradient(180deg, #1e293b 0%, #450a0a 100%)"; // Tono Rojo (Viejo)
+                    }
+                    // Aplicar tambien al header para consistencia
+                    const header = column.querySelector('.wa-column-header');
+                    if (header) header.style.background = "rgba(0,0,0,0.2)";
+                }
+            }
+
             renderWhatsAppConversation(msgs, containerId);
 
         } catch(err) {
@@ -1413,10 +1473,15 @@
       
       const senderColor = getColor(m.sender);
       
+      // Extraer nombre y email para el badge
+      const namePart = m.sender.split('<')[0].trim();
+      const emailPart = m.sender.includes('<') ? m.sender.match(/<([^>]+)>/)[1] : "";
+      const emailHtml = emailPart ? `<span style="opacity:0.6; font-size:0.9em; font-weight:normal; margin-left:5px;">${emailPart}</span>` : "";
+
       msgDiv.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <div class="wa-msg-header" style="background: ${senderColor};">${m.sender}</div>
+            <div class="wa-msg-header" style="background: ${senderColor};">${namePart}${emailHtml}</div>
             <span class="wa-msg-time-badge">${m.time}</span>
           </div>
           <button class="wa-minimize-btn" style="background:transparent; border:none; color:#8696a0; cursor:pointer; font-size:14px; font-weight:bold;">−</button>
