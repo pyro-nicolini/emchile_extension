@@ -7,9 +7,7 @@
     <link rel="stylesheet" href="sidebar.css" />
   </head>
   <body>
-    <!-- ══════════════════════════════════════════════════════════════════════════
-       HEADER
-  ═══════════════════════════════════════════════════════════════════════════ -->
+    <!-- HEADER -->
     <header class="sh">
       <div class="sh-brand">
         <div class="sh-glyph">⚡</div>
@@ -21,26 +19,23 @@
       </div>
       <div class="sh-actions">
         <button class="ic-btn ic-tabla" id="js-tabla" title="Tabla de OCs">⊞</button>
+        <button class="ic-btn ic-exp" id="js-experimental" title="Análisis Experimental Masivo">🧪</button>
         <button class="ic-btn" id="js-settings" title="Configuración">⚙</button>
         <button class="ic-btn" id="js-history" title="Historial">◷</button>
         <button class="ic-btn ic-close" id="js-close" title="Cerrar">✕</button>
       </div>
     </header>
 
-    <!-- ══════════════════════════════════════════════════════════════════════════
-       TICKET INFO BAR
-  ═══════════════════════════════════════════════════════════════════════════ -->
+    <!-- TICKET INFO BAR -->
     <div class="tbar">
       <span class="tbar-id" id="js-tid">#—</span>
       <span class="tbar-sub" id="js-tsub">Esperando ticket…</span>
       <span class="cat-badge hidden" id="js-cat">—</span>
     </div>
 
-    <!-- ══════════════════════════════════════════════════════════════════════════
-       BODY  (states are toggled with .hidden)
-  ═══════════════════════════════════════════════════════════════════════════ -->
+    <!-- BODY -->
     <div class="sb-body">
-      <!-- ── IDLE ─────────────────────────────────────────────────────────── -->
+      <!-- IDLE -->
       <div class="sv" id="sv-idle">
         <div class="idle-glyph">⚡</div>
         <p class="idle-title">EMChile AI Desk</p>
@@ -54,7 +49,7 @@
         </div>
       </div>
 
-      <!-- ── LOADING ───────────────────────────────────────────────────────── -->
+      <!-- LOADING -->
       <div class="sv hidden" id="sv-loading">
         <div class="spin-wrap">
           <div class="ring r1"></div>
@@ -66,7 +61,7 @@
         <p class="load-sub">Procesando con GPT · EMChile</p>
       </div>
 
-      <!-- ── ERROR ─────────────────────────────────────────────────────────── -->
+      <!-- ERROR -->
       <div class="sv hidden" id="sv-error">
         <div class="err-panel">
           <div class="err-icon-wrap">
@@ -98,9 +93,8 @@
         </div>
       </div>
 
-      <!-- ── RESULTS ───────────────────────────────────────────────────────── -->
+      <!-- RESULTS -->
       <div class="sv sv-results hidden" id="sv-results">
-        <!-- shouldReply warning -->
         <div class="warn-bar hidden" id="js-warn">
           <span class="warn-icon">⚠</span>
           <span>Revisar antes de enviar — confianza baja o caso ambiguo</span>
@@ -128,26 +122,12 @@
 
         <div class="analysis-context-row">
           <div class="analysis-context-box">
-            <label class="analysis-context-label" for="js-client-context"
-              >contexto</label
-            >
-            <input
-              id="js-client-context"
-              class="analysis-context-input"
-              type="text"
-              placeholder="contexto respuestas"
-            />
+            <label class="analysis-context-label" for="js-client-context">contexto</label>
+            <input id="js-client-context" class="analysis-context-input" type="text" placeholder="contexto respuestas" />
           </div>
           <div class="analysis-context-box">
-            <label class="analysis-context-label" for="js-internal-context"
-              >contexto</label
-            >
-            <input
-              id="js-internal-context"
-              class="analysis-context-input"
-              type="text"
-              placeholder="contexto interno"
-            />
+            <label class="analysis-context-label" for="js-internal-context">contexto</label>
+            <input id="js-internal-context" class="analysis-context-input" type="text" placeholder="contexto interno" />
           </div>
         </div>
 
@@ -164,73 +144,37 @@
             <div class="card-head">
               <span class="clabel">Respuesta al cliente</span>
               <div class="cacts">
-                <button class="btn-copy" data-key="clientReply">
-                  ⧉ Copiar
-                </button>
-                <button class="btn-insert" id="js-insert">
-                  ↗ Insertar en Zoho
-                </button>
+                <button class="btn-copy" data-key="clientReply">⧉ Copiar</button>
+                <button class="btn-insert" id="js-insert">↗ Insertar en Zoho</button>
               </div>
             </div>
             <div class="card-body" id="js-client">—</div>
           </div>
 
-          <!-- ── PROMPT PERSONALIZADO ─────────────────────────────────────── -->
+          <!-- PROMPT PERSONALIZADO -->
           <div class="card cp-card">
             <div class="card-head">
               <span class="clabel">✦ Prompt personalizado</span>
             </div>
             <div class="cp-body">
               <div class="cp-persistent">
-                <label for="js-cp-context" class="cp-sub-label"
-                  >Contexto personalizado</label
-                >
-                <input
-                  id="js-cp-context"
-                  class="cp-context-input"
-                  type="text"
-                  placeholder="Ej: Mantén tono cercano, disculpa demoras por falta de acceso al correo, evita prometer fechas exactas…"
-                />
-                <span class="cp-context-hint"
-                  >Se guarda automáticamente y no se borra con F5</span
-                >
+                <label for="js-cp-context" class="cp-sub-label">Contexto personalizado</label>
+                <input id="js-cp-context" class="cp-context-input" type="text" placeholder="Ej: Mantén tono cercano, disculpa demoras por falta de acceso al correo, evita prometer fechas exactas…" />
+                <span class="cp-context-hint">Se guarda automáticamente y no se borra con F5</span>
               </div>
 
-              <textarea
-                id="js-cp-input"
-                class="cp-textarea"
-                rows="4"
-                placeholder="Ej: esta es la factura del cliente, indícame los números de OT que aparecen y redacta una respuesta con esa información…"
-              ></textarea>
+              <textarea id="js-cp-input" class="cp-textarea" rows="4" placeholder="Ej: esta es la factura del cliente, indícame los números de OT que aparecen y redacta una respuesta con esa información…"></textarea>
 
-              <!-- Attachment zone -->
               <div class="cp-attach-row">
-                <input
-                  type="file"
-                  id="js-cp-file"
-                  accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
-                  class="hidden"
-                />
-                <label for="js-cp-file" class="btn-cp-attach">
-                  📎 Adjuntar PDF / Imagen
-                </label>
+                <input type="file" id="js-cp-file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" class="hidden" />
+                <label for="js-cp-file" class="btn-cp-attach">📎 Adjuntar PDF / Imagen</label>
                 <span class="cp-attach-hint">o pega imagen con Ctrl+V</span>
               </div>
 
-              <!-- Attachment preview (shown when a file/image is loaded) -->
               <div class="cp-attach-preview hidden" id="js-cp-preview">
-                <span class="cp-attach-file-icon" id="js-cp-attach-icon"
-                  >🖼</span
-                >
+                <span class="cp-attach-file-icon" id="js-cp-attach-icon">🖼</span>
                 <span class="cp-attach-name" id="js-cp-attach-name"></span>
-                <button
-                  class="cp-attach-remove"
-                  id="js-cp-remove"
-                  type="button"
-                  title="Quitar adjunto"
-                >
-                  ✕
-                </button>
+                <button class="cp-attach-remove" id="js-cp-remove" type="button" title="Quitar adjunto">✕</button>
               </div>
 
               <button class="btn-cp-run" id="js-cp-run">
@@ -240,15 +184,13 @@
             </div>
           </div>
 
-          <!-- ── ANTI-MUESTRAS ──────────────────────────────────────────── -->
+          <!-- ANTI-MUESTRAS -->
           <div class="card anti-card">
             <div class="card-head">
               <span class="clabel">Anti-muestras</span>
             </div>
             <div class="cp-body">
-              <p class="anti-desc">
-                Respuesta breve: solo con stock disponible, sin promesas.
-              </p>
+              <p class="anti-desc">Respuesta breve: solo con stock disponible, sin promesas.</p>
               <button class="btn-cp-run btn-anti-run" id="js-anti-sample">
                 <span class="cp-run-icon">✦</span>
                 <span class="cp-run-label">Generar anti-muestras</span>
@@ -256,15 +198,13 @@
             </div>
           </div>
 
-          <!-- ── RESPUESTA PERSONALIZADA ──────────────────────────────────── -->
+          <!-- RESPUESTA PERSONALIZADA -->
           <div class="card hidden" id="js-cp-result-card">
             <div class="card-head">
               <span class="clabel">Respuesta personalizada</span>
               <div class="cacts">
                 <button class="btn-copy" id="js-cp-copy">⧉ Copiar</button>
-                <button class="btn-insert" id="js-cp-insert">
-                  ↗ Insertar en Zoho
-                </button>
+                <button class="btn-insert" id="js-cp-insert">↗ Insertar en Zoho</button>
               </div>
             </div>
             <div class="card-body" id="js-cp-response">—</div>
@@ -277,9 +217,7 @@
             <div class="card-head">
               <span class="clabel">Comunicación interna</span>
               <div class="cacts">
-                <button class="btn-copy" data-key="internalMessage">
-                  ⧉ Copiar
-                </button>
+                <button class="btn-copy" data-key="internalMessage">⧉ Copiar</button>
               </div>
             </div>
             <div class="card-body" id="js-internal">—</div>
@@ -307,9 +245,8 @@
       </div>
       <!-- /sv-results -->
 
-      <!-- ── TABLA OC ──────────────────────────────────────────────────────── -->
+      <!-- TABLA OC -->
       <div class="sv hidden" id="sv-tabla">
-        <!-- Toolbar superior -->
         <div class="tbl-toolbar">
           <div class="tbl-title-wrapper">
             <span class="tbl-toolbar-icon">⊞</span>
@@ -325,21 +262,14 @@
           </div>
         </div>
 
-        <!-- Input para pegar OCs -->
         <div class="tbl-import-zone">
           <div class="tbl-import-label">Pegar OCs</div>
           <div class="tbl-import-row">
-            <input
-              id="js-tbl-input"
-              class="tbl-import-input"
-              type="text"
-              placeholder="Ej: 1555-4541-AG25, 1702-976-AG25 (separadas por coma o espacio)"
-            />
+            <input id="js-tbl-input" class="tbl-import-input" type="text" placeholder="Ej: 1555-4541-AG25, 1702-976-AG25 (separadas por coma o espacio)" />
             <button class="btn-tbl-add" id="js-tbl-add">+ Agregar</button>
           </div>
         </div>
 
-        <!-- Tabla -->
         <div class="tbl-scroll">
           <table class="oc-table" id="js-oc-table">
             <thead>
@@ -431,7 +361,111 @@
       </div>
       <!-- /sv-tabla -->
 
-      <!-- ── HISTORY ───────────────────────────────────────────────────────── -->
+      <!-- EXPERIMENTAL MASS ANALYSIS -->
+      <div class="sv sv-exp hidden" id="sv-experimental">
+        <div class="exp-header">
+          <div class="exp-header-brand">
+            <span class="exp-header-icon">🧪</span>
+            <div class="exp-header-text">
+              <span class="exp-title">ANÁLISIS EXPERIMENTAL</span>
+              <span class="exp-subtitle">Motor de Revisión Masiva · Open Tickets</span>
+            </div>
+          </div>
+          <div class="exp-status-badge" id="js-exp-status-badge">
+            <span class="exp-status-dot"></span>
+            <span id="js-exp-status-text">IDLE</span>
+          </div>
+        </div>
+
+        <div class="exp-config-panel">
+          <div class="exp-config-grid">
+            <div class="exp-cfg-item">
+              <label class="exp-cfg-label">CANTIDAD DE TICKETS</label>
+              <div class="exp-cfg-row">
+                <input type="number" id="js-exp-count" class="exp-cfg-input" value="10" min="1" max="50" />
+                <span class="exp-cfg-hint">max 50</span>
+              </div>
+            </div>
+            <div class="exp-cfg-item">
+              <label class="exp-cfg-label">MODO DE CAPTURA</label>
+              <select id="js-exp-mode" class="exp-cfg-select">
+                <option value="first">⬆ Primeros N (más antiguos)</option>
+                <option value="last" selected>⬇ Últimos N (más recientes)</option>
+              </select>
+            </div>
+            <div class="exp-cfg-item">
+              <label class="exp-cfg-label">DESDE FECHA (opcional)</label>
+              <input type="date" id="js-exp-date" class="exp-cfg-input" />
+            </div>
+          </div>
+          <div class="exp-actions">
+            <button class="btn-exp-scan" id="js-exp-scan">
+              <span class="btn-exp-icon">◉</span>
+              <span id="js-exp-scan-label">ESCANEAR TICKETS ABIERTOS</span>
+            </button>
+            <button class="btn-exp-run" id="js-exp-run" disabled>
+              <span class="btn-exp-icon">▶</span>
+              <span id="js-exp-run-label">INICIAR ANÁLISIS IA</span>
+            </button>
+            <button class="btn-exp-clear" id="js-exp-clear">✕ Limpiar</button>
+          </div>
+          <div class="exp-progress-wrap hidden" id="js-exp-progress-wrap">
+            <div class="exp-progress-info">
+              <span id="js-exp-progress-label">Procesando ticket 0 de 0…</span>
+              <span id="js-exp-progress-pct">0%</span>
+            </div>
+            <div class="exp-progress-track">
+              <div class="exp-progress-fill" id="js-exp-progress-fill"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ticket preview list -->
+        <div class="exp-ticket-list hidden" id="js-exp-ticket-list">
+          <div class="exp-list-header">
+            <span class="exp-list-title">TICKETS DETECTADOS</span>
+            <span class="exp-list-count" id="js-exp-list-count">0</span>
+          </div>
+          <div class="exp-tickets-scroll" id="js-exp-tickets-scroll"></div>
+        </div>
+
+        <!-- Results table -->
+        <div class="exp-results-wrap hidden" id="js-exp-results-wrap">
+          <div class="exp-results-header">
+            <span class="exp-results-title">ANÁLISIS COMPLETADO</span>
+            <div class="exp-results-actions">
+              <button class="btn-ghost-sm" id="js-exp-copy-table">⧉ Copiar</button>
+              <button class="btn-ghost-sm" id="js-exp-export">⬇ Excel</button>
+            </div>
+          </div>
+          <div class="exp-table-scroll">
+            <table class="exp-table" id="js-exp-table">
+              <thead>
+                <tr>
+                  <th class="exp-th exp-th-ticket">TICKET</th>
+                  <th class="exp-th exp-th-summary">RESUMEN DE COMUNICACIONES</th>
+                  <th class="exp-th exp-th-resolution">RESOLUCIÓN</th>
+                </tr>
+              </thead>
+              <tbody id="js-exp-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Log console -->
+        <div class="exp-log" id="js-exp-log">
+          <div class="exp-log-header">
+            <span class="exp-log-title">› CONSOLA</span>
+            <button class="exp-log-clear" id="js-exp-log-clear">✕</button>
+          </div>
+          <div class="exp-log-body" id="js-exp-log-body">
+            <span class="exp-log-line exp-log-info">Sistema iniciado. Configura los parámetros y escanea los tickets.</span>
+          </div>
+        </div>
+      </div>
+      <!-- /sv-experimental -->
+
+      <!-- HISTORY -->
       <div class="sv hidden" id="sv-history">
         <div class="hist-head">
           <span>Historial de análisis</span>
@@ -440,7 +474,7 @@
         <div class="hist-list" id="js-hist"></div>
       </div>
 
-      <!-- ── SETTINGS INLINE ───────────────────────────────────────────────── -->
+      <!-- SETTINGS -->
       <div class="sv hidden" id="sv-settings">
         <div class="cfg-form">
           <p class="cfg-title">⚙ Configuración rápida</p>
@@ -455,13 +489,7 @@
 
           <label class="cfg-label" id="js-apikey-label">OpenAI API Key</label>
           <div class="cfg-row">
-            <input
-              type="password"
-              id="js-apikey"
-              class="cfg-input"
-              placeholder="sk-…"
-              autocomplete="off"
-            />
+            <input type="password" id="js-apikey" class="cfg-input" placeholder="sk-…" autocomplete="off" />
             <button class="btn-eye" id="js-eye">👁</button>
           </div>
 
@@ -482,26 +510,17 @@
 
           <div id="js-custom-wrap" class="hidden">
             <label class="cfg-label">Prompt del sistema</label>
-            <textarea
-              id="js-custom-prompt"
-              class="cfg-textarea"
-              rows="7"
-              placeholder="Eres un asistente…"
-            ></textarea>
+            <textarea id="js-custom-prompt" class="cfg-textarea" rows="7" placeholder="Eres un asistente…"></textarea>
           </div>
 
-          <button class="btn-primary" id="js-save-cfg">
-            ✓ Guardar configuración
-          </button>
+          <button class="btn-primary" id="js-save-cfg">✓ Guardar configuración</button>
           <button class="btn-ghost" id="js-back-cfg">← Volver</button>
         </div>
       </div>
     </div>
     <!-- /sb-body -->
 
-    <!-- ══════════════════════════════════════════════════════════════════════════
-       FOOTER
-  ═══════════════════════════════════════════════════════════════════════════ -->
+    <!-- FOOTER -->
     <footer class="sf" id="js-footer">
       <div class="conf-bar">
         <span class="conf-lbl">Confianza</span>

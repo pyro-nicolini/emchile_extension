@@ -866,6 +866,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
       })();
       return true;
+    case "NOTIFY_CONTENT": {
+      console.log("%c[EMChile] Background relaying:", "color:orange;font-weight:bold;", request.msg);
+      chrome.tabs.query({ active: true }, (tabs) => {
+        tabs.forEach(tab => {
+          chrome.tabs.sendMessage(tab.id, request.msg).catch(() => {});
+        });
+      });
+      return false;
     }
   }
 });

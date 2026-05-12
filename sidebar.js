@@ -56,6 +56,7 @@
   let cpAttachment = null; // { type: 'image'|'pdf', base64, mimeType, name }
   let cpContextSaveTimer = null;
   let analysisContextSaveTimer = null;
+  const isExpMode = window.location.href.includes("mode=exp") || window.location.hash.includes("exp");
 
   // ─── INIT ──────────────────────────────────────────────────────────────────
   function init() {
@@ -125,6 +126,29 @@
       // Tabla
       btnTabla:    $("js-tabla"),
       tblInput:    $("js-tbl-input"),
+      // Experimental
+      btnExp:              $("js-experimental"),
+      expCount:            $("js-exp-count"),
+      expMode:             $("js-exp-mode"),
+      expDate:             $("js-exp-date"),
+      btnExpScan:          $("js-exp-scan"),
+      btnExpRun:           $("js-exp-run"),
+      btnExpClear:         $("js-exp-clear"),
+      expProgressWrap:     $("js-exp-progress-wrap"),
+      expProgressLabel:    $("js-exp-progress-label"),
+      expProgressPct:      $("js-exp-progress-pct"),
+      expProgressFill:     $("js-exp-progress-fill"),
+      expTicketList:       $("js-exp-ticket-list"),
+      expListCount:        $("js-exp-list-count"),
+      expTicketsScroll:    $("js-exp-tickets-scroll"),
+      expResultsWrap:      $("js-exp-results-wrap"),
+      expTbody:            $("js-exp-tbody"),
+      btnExpCopyTable:     $("js-exp-copy-table"),
+      btnExpExport:        $("js-exp-export"),
+      expLogBody:          $("js-exp-log-body"),
+      btnExpLogClear:      $("js-exp-log-clear"),
+      expStatusBadge:      $("js-exp-status-badge"),
+      expStatusText:       $("js-exp-status-text"),
       btnTblAdd:   $("js-tbl-add"),
       tblBody:     $("js-tbl-body"),
       tblCount:    $("js-tbl-count"),
@@ -318,10 +342,30 @@
         } else {
           previousView = activeView;
           el.btnTabla.classList.add("active");
+          if (el.btnExp) el.btnExp.classList.remove("active");
           showView("tabla");
         }
       });
     }
+    if (el.btnExp) {
+      el.btnExp.addEventListener("click", () => {
+        if (activeView === "experimental") {
+          el.btnExp.classList.remove("active");
+          showView(previousView);
+        } else {
+          previousView = activeView;
+          el.btnExp.classList.add("active");
+          if (el.btnTabla) el.btnTabla.classList.remove("active");
+          showView("experimental");
+        }
+      });
+    }
+    if (el.btnExpScan)      el.btnExpScan.addEventListener("click", expScanTickets);
+    if (el.btnExpRun)       el.btnExpRun.addEventListener("click", expRunAnalysis);
+    if (el.btnExpClear)     el.btnExpClear.addEventListener("click", expClear);
+    if (el.btnExpCopyTable) el.btnExpCopyTable.addEventListener("click", expCopyTable);
+    if (el.btnExpExport)    el.btnExpExport.addEventListener("click", expExportExcel);
+    if (el.btnExpLogClear)  el.btnExpLogClear.addEventListener("click", () => { if(el.expLogBody) el.expLogBody.innerHTML = ""; });
     if (el.btnTblAdd) {
       el.btnTblAdd.addEventListener("click", handleTblAdd);
     }
@@ -357,13 +401,47 @@
       el.fileImport.addEventListener("change", handleImportFile);
     }
 
+    if (isExpMode) {
+      var header = document.querySelector(".sh");
+      var tbar = document.querySelector(".tbar");
+      var footer = document.querySelector(".footer");
+      if (header) header.style.display = "none";
+      if (tbar) tbar.style.display = "none";
+      if (footer) footer.style.display = "none";
+      showView("experimental");
+    }
+
     // Messages from content.js
     window.addEventListener("message", onContentMessage);
+
+    // Listen for storage changes to sync OC table across tabs
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && (changes.ocTracking || changes.visibleCols)) {
+        if (changes.ocTracking) ocRows = changes.ocTracking.newValue || [];
+        if (changes.visibleCols) visibleCols = changes.visibleCols.newValue || [true,true,true,true,true,true,true,true];
+        renderTabla();
+      }
+    });
   }
 
   // ─── INCOMING MESSAGES ─────────────────────────────────────────────────────
   function onContentMessage(evt) {
     const { type, data, error, ticketData, ticketId, message } = evt.data || {};
+    
+    // Experimental mode shield: ignore main AI Desk events to prevent getting stuck
+    if (isExpMode) {
+      if (type === "OPEN_TICKETS_RESULT") {
+        expHandleScanResult(data);
+      } else if (type === "FETCH_CONV_RESULT") {
+        if (window._expConvResolve && window._expConvId === data?.id) {
+          window._expConvResolve(data?.conversation || "");
+          window._expConvResolve = null;
+          window._expConvId = null;
+        }
+      }
+      return; // Do NOT process LOADING_START, ANALYSIS_RESULT, etc.
+    }
+
     switch (type) {
       case "LOADING_START":
         showView("loading");
@@ -405,6 +483,9 @@
         break;
       case "INSERT_SUCCESS":
         showToast("✓ Texto insertado en el editor de Zoho");
+        break;
+      case "INSERT_FALLBACK":
+        showToast(message || "✓ Copiado al portapapeles");
         break;
       case "INSERT_FALLBACK":
         showToast(message || "✓ Copiado al portapapeles");
@@ -457,7 +538,10 @@
   }
 
   function notifyContent(msg) {
-    window.parent.postMessage({ source: "emchile-sidebar", ...msg }, "*");
+    console.log("%c[EMChile] Sidebar notifying:", "color:lime;font-weight:bold;", msg);
+    // Send to background script which will forward to content script
+    // This is more reliable than window.postMessage in some browsers (like Opera)
+    chrome.runtime.sendMessage({ type: "NOTIFY_CONTENT", msg });
   }
 
   // ─── VIEW MANAGEMENT ───────────────────────────────────────────────────────
@@ -469,6 +553,7 @@
     "history",
     "settings",
     "tabla",
+    "experimental",
   ];
 
   function showView(name) {
@@ -591,13 +676,22 @@
     el.ocList.innerHTML = ocNumbers
       .map(
         (oc) =>
-          `<button class="oc-chip" type="button" data-oc="${esc(oc)}">${esc(oc)}</button>`,
+          `<div class="oc-chip-wrapper" style="display:inline-flex; align-items:center; background:var(--bg-b); border:1px solid var(--border-a); border-radius:8px; margin:2px; overflow:hidden;">
+            <button class="oc-chip" type="button" data-oc="${esc(oc)}" style="border:none; background:transparent; padding:4px 8px; cursor:pointer; color:var(--text-a); font-size:11px;">${esc(oc)}</button>
+            <button class="oc-search-mp" type="button" data-oc="${esc(oc)}" title="Buscar en Mercado Público" style="border:none; border-left:1px solid var(--border-a); background:rgba(255,255,255,0.05); padding:4px 6px; cursor:pointer; color:var(--accent); font-size:10px;">🔍</button>
+          </div>`,
       )
       .join("");
 
     el.ocList.querySelectorAll(".oc-chip").forEach((chip) => {
       chip.addEventListener("click", () => {
         copyText(chip.dataset.oc || "").then(() => showToast("✓ OC copiada"));
+      });
+    });
+
+    el.ocList.querySelectorAll(".oc-search-mp").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        notifyContent({ type: "SEARCH_OC_MP", data: { oc: btn.dataset.oc } });
       });
     });
   }
@@ -1253,11 +1347,20 @@
 
     // Bind OC click to search in Mercado Publico or Zoho
     el.tblBody.querySelectorAll(".tbl-oc-clickable").forEach(cell => {
-      cell.title = "Buscar esta OC";
+      cell.title = "Buscar esta OC en Zoho Desk";
       cell.addEventListener("click", () => {
         var idx = Number(cell.closest("tr").dataset.idx);
         var oc = ocRows[idx].oc;
         notifyContent({ type: "SEARCH_OC_GLOBAL", data: { oc } });
+      });
+    });
+
+    // Bind MP search button
+    el.tblBody.querySelectorAll(".js-search-mp").forEach(btn => {
+      btn.addEventListener("click", () => {
+        var idx = Number(btn.closest("tr").dataset.idx);
+        var oc = ocRows[idx].oc;
+        notifyContent({ type: "SEARCH_OC_MP", data: { oc } });
       });
     });
 
@@ -1336,7 +1439,10 @@
 
     return `<tr class="tbl-tr" data-idx="${idx}">
       <td class="tbl-td tbl-oc-cell">
-        <div class="tbl-oc-clickable">${esc(row.oc)}</div>
+        <div style="display:flex; align-items:center; gap:4px;">
+          <div class="tbl-oc-clickable" style="flex:1;">${esc(row.oc)}</div>
+          <button class="btn-ghost-sm js-search-mp" title="Buscar en Mercado Público" style="padding:2px; font-size:10px;">🔍MP</button>
+        </div>
         <button class="btn-ghost-sm js-row-date" style="font-size:8px; padding:2px 4px; margin-top:4px; opacity:0.8; width:100%; border:1px dashed var(--border-a);" title="Extraer fecha del último correo">📅 Extraer Fecha</button>
       </td>
       <td class="tbl-td">
@@ -1698,6 +1804,319 @@
       el.fileImport.value = "";
     };
     reader.readAsText(file);
+  }
+
+  // ─── EXPERIMENTAL MODULE ───────────────────────────────────────────────────
+  let expTickets = [];      // Array of { id, subject, date, status }
+  let expResults = [];      // Array of { ticket, summary, resolution, error }
+  let expRunning = false;
+
+  function expLog(msg, type) {
+    if (!el.expLogBody) return;
+    var line = document.createElement("span");
+    line.className = "exp-log-line exp-log-" + (type || "info");
+    var ts = new Date().toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    line.textContent = "[" + ts + "] " + msg;
+    el.expLogBody.appendChild(line);
+    el.expLogBody.scrollTop = el.expLogBody.scrollHeight;
+  }
+
+  function expSetStatus(state, text) {
+    if (!el.expStatusBadge || !el.expStatusText) return;
+    el.expStatusBadge.className = "exp-status-badge" + (state ? " " + state : "");
+    el.expStatusText.textContent = text || state.toUpperCase();
+  }
+
+  function expScanTickets() {
+    var count = Math.min(50, Math.max(1, parseInt(el.expCount?.value) || 10));
+    var mode  = el.expMode?.value || "last";
+    var since = el.expDate?.value || "";
+
+    expLog("Iniciando escaneo: " + count + " tickets " + (mode === "last" ? "(más recientes)" : "(más antiguos)") + (since ? " desde " + since : ""), "info");
+    expSetStatus("running", "ESCANEANDO");
+
+    if (el.btnExpScan) { el.btnExpScan.disabled = true; }
+
+    notifyContent({
+      type: "SCAN_OPEN_TICKETS",
+      data: { count, mode, since }
+    });
+
+    // Safety timeout if content.js doesn't respond
+    var _timer = setTimeout(function() {
+      if (el.btnExpScan) el.btnExpScan.disabled = false;
+      expSetStatus("error", "TIMEOUT");
+      expLog("No se recibió respuesta del escaneo. Asegúrate de estar en la lista de tickets de Zoho Desk.", "error");
+    }, 12000);
+    el.btnExpScan._timer = _timer;
+  }
+
+  function expHandleScanResult(data) {
+    if (el.btnExpScan) {
+      el.btnExpScan.disabled = false;
+      clearTimeout(el.btnExpScan._timer);
+    }
+    var tickets = data?.tickets || [];
+    if (!tickets.length) {
+      expSetStatus("error", "SIN DATOS");
+      expLog("No se encontraron tickets abiertos en la vista actual.", "warn");
+      return;
+    }
+    expTickets = tickets;
+    expResults = [];
+    expLog("Encontrados " + tickets.length + " ticket(s) abierto(s).", "ok");
+    expSetStatus("", "LISTO");
+
+    // Render preview list
+    if (el.expTicketList) el.expTicketList.classList.remove("hidden");
+    if (el.expListCount)  el.expListCount.textContent = tickets.length;
+    if (el.expTicketsScroll) {
+      el.expTicketsScroll.innerHTML = tickets.map(function(t) {
+        return '<div class="exp-ticket-chip" data-tid="' + esc(t.id) + '">' +
+          '<span class="exp-chip-id">#' + esc(t.id) + '</span>' +
+          '<span class="exp-chip-subject">' + esc(t.subject || '—') + '</span>' +
+          '<span class="exp-chip-date">' + esc(t.date || '') + '</span>' +
+          '<span class="exp-chip-status pending"></span>' +
+        '</div>';
+      }).join("");
+    }
+
+    // Prepare results table rows (loading state)
+    if (el.expResultsWrap) el.expResultsWrap.classList.remove("hidden");
+    if (el.expTbody) {
+      el.expTbody.innerHTML = tickets.map(function(t) {
+        return '<tr class="exp-tr exp-tr-loading" id="exp-row-' + esc(t.id) + '">' +
+          '<td class="exp-td exp-td-ticket">' +
+            '<span class="exp-ticket-id">#' + esc(t.id) + '</span>' +
+            '<span class="exp-ticket-subject" title="' + esc(t.subject || '') + '">' + esc((t.subject || '').slice(0, 35)) + '</span>' +
+          '</td>' +
+          '<td class="exp-td exp-td-summary"><div class="exp-cell-loading"><div class="exp-cell-spinner"></div>Pendiente…</div></td>' +
+          '<td class="exp-td exp-td-resolution"><div class="exp-cell-loading"><div class="exp-cell-spinner"></div>—</div></td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    if (el.btnExpRun) el.btnExpRun.disabled = false;
+    showToast("✓ " + tickets.length + " tickets detectados");
+  }
+
+  async function expRunAnalysis() {
+    if (expRunning || !expTickets.length) return;
+    expRunning = true;
+    expResults = [];
+
+    if (el.btnExpRun) { el.btnExpRun.disabled = true; el.btnExpRun.classList.add("running"); }
+    if (el.btnExpScan) el.btnExpScan.disabled = true;
+    if (el.expProgressWrap) el.expProgressWrap.classList.remove("hidden");
+    expSetStatus("running", "ANALIZANDO");
+    expLog("Iniciando análisis IA de " + expTickets.length + " ticket(s)…", "info");
+
+    var total = expTickets.length;
+
+    for (var i = 0; i < total; i++) {
+      var ticket = expTickets[i];
+      var pct = Math.round(((i) / total) * 100);
+
+      // Update progress
+      if (el.expProgressLabel) el.expProgressLabel.textContent = "Analizando ticket " + (i+1) + " de " + total + ": #" + ticket.id;
+      if (el.expProgressPct)   el.expProgressPct.textContent   = pct + "%";
+      if (el.expProgressFill)  el.expProgressFill.style.width  = pct + "%";
+
+      // Mark chip as running
+      var chip = el.expTicketsScroll?.querySelector('[data-tid="' + ticket.id + '"] .exp-chip-status');
+      if (chip) chip.className = "exp-chip-status running";
+
+      // Mark row as running
+      var row = document.getElementById("exp-row-" + ticket.id);
+      if (row) {
+        row.querySelectorAll(".exp-td-summary, .exp-td-resolution").forEach(function(td) {
+          td.innerHTML = '<div class="exp-cell-loading"><div class="exp-cell-spinner"></div>Analizando…</div>';
+        });
+      }
+
+      expLog("[" + (i+1) + "/" + total + "] Analizando #" + ticket.id + " — " + (ticket.subject || '').slice(0,40), "info");
+
+      try {
+        var reply = await expAnalyzeTicket(ticket);
+        expResults.push({ ticket, summary: reply.summary, resolution: reply.resolution });
+
+        // Update row
+        if (row) {
+          row.className = "exp-tr exp-tr-done";
+          var sumTd = row.querySelector(".exp-td-summary");
+          var resTd = row.querySelector(".exp-td-resolution");
+          if (sumTd) sumTd.textContent = reply.summary || "Sin resumen";
+          if (resTd) {
+            var badge = expResolutionBadge(reply.resolution);
+            resTd.innerHTML = badge + ' <span style="display:block;margin-top:4px;font-size:9px;color:var(--t2)">' + esc(reply.resolution || '') + '</span>';
+          }
+        }
+        if (chip) chip.className = "exp-chip-status done";
+        expLog("  ✓ #" + ticket.id + " analizado.", "ok");
+      } catch(err) {
+        expResults.push({ ticket, summary: null, resolution: null, error: err.message });
+        if (row) {
+          row.className = "exp-tr exp-tr-error";
+          row.querySelectorAll(".exp-td-summary, .exp-td-resolution").forEach(function(td) {
+            td.innerHTML = '<span class="exp-cell-error">✗ ' + esc(err.message || 'Error') + '</span>';
+          });
+        }
+        if (chip) chip.className = "exp-chip-status error";
+        expLog("  ✗ #" + ticket.id + " — " + err.message, "error");
+      }
+
+      // Small delay to avoid API throttling
+      await new Promise(function(r) { setTimeout(r, 600); });
+    }
+
+    // Done
+    if (el.expProgressLabel) el.expProgressLabel.textContent = "Análisis completo — " + total + " ticket(s) procesados";
+    if (el.expProgressPct)   el.expProgressPct.textContent   = "100%";
+    if (el.expProgressFill)  el.expProgressFill.style.width  = "100%";
+    expSetStatus("done", "COMPLETO");
+    expLog("Análisis finalizado. " + expResults.filter(function(r){ return !r.error; }).length + " OK · " + expResults.filter(function(r){ return r.error; }).length + " errores.", "ok");
+    expRunning = false;
+    if (el.btnExpRun)  { el.btnExpRun.disabled = false; el.btnExpRun.classList.remove("running"); }
+    if (el.btnExpScan) el.btnExpScan.disabled = false;
+    showToast("✓ Análisis masivo completado");
+  }
+
+  function expFetchConversation(ticketId) {
+    return new Promise(function(resolve) {
+      window._expConvId = ticketId;
+      window._expConvResolve = resolve;
+      notifyContent({ type: "FETCH_TICKET_CONVERSATION", data: { id: ticketId } });
+      // Timeout fallback
+      setTimeout(function() {
+        if (window._expConvId === ticketId) {
+          window._expConvResolve("");
+          window._expConvResolve = null;
+          window._expConvId = null;
+        }
+      }, 8000);
+    });
+  }
+
+  async function expAnalyzeTicket(ticket) {
+    var convText = await expFetchConversation(ticket.id);
+    ticket.conversation = convText;
+
+    return new Promise(function(resolve, reject) {
+      var prompt = [
+        "Analiza el siguiente ticket de soporte y responde EXCLUSIVAMENTE con un JSON con este formato exacto:",
+        '{ "summary": "<resumen de lo que se comunicó y acordó en 2-3 oraciones>", "resolution": "<estado: Resuelto | Pendiente | Sin respuesta | En espera de cliente | Escalado | En revisión>"}',
+        "",
+        "Ticket ID: #" + ticket.id,
+        "Asunto: " + (ticket.subject || "Sin asunto"),
+        "Fecha: " + (ticket.date || ""),
+        "Conversación:",
+        ticket.conversation || "(sin conversación disponible)"
+      ].join("\n");
+
+      chrome.runtime.sendMessage(
+        {
+          type: "CUSTOM_PROMPT_ANALYZE",
+          data: {
+            ticketData: { ticketId: ticket.id, subject: ticket.subject },
+            currentResult: null,
+            userPrompt: prompt,
+            persistentContext: "",
+            attachment: null
+          }
+        },
+        function(response) {
+          if (chrome.runtime.lastError || response?.error) {
+            return reject(new Error(response?.error || chrome.runtime.lastError?.message || "Error IA"));
+          }
+          var raw = (response.reply || "").trim();
+          // Strip markdown code fences if present
+          raw = raw.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
+          try {
+            var parsed = JSON.parse(raw);
+            resolve({ summary: parsed.summary || raw, resolution: parsed.resolution || "" });
+          } catch(_) {
+            // If not JSON, use raw text as summary
+            resolve({ summary: raw, resolution: "" });
+          }
+        }
+      );
+    });
+  }
+
+  function expResolutionBadge(resolution) {
+    if (!resolution) return '';
+    var r = resolution.toLowerCase();
+    var cls = "exp-badge-open";
+    if (r.includes("resuelto") || r.includes("cerrado")) cls = "exp-badge-resolved";
+    else if (r.includes("pendiente") || r.includes("espera") || r.includes("revisión")) cls = "exp-badge-pending";
+    else if (r.includes("escalado") || r.includes("urgente") || r.includes("sin respuesta")) cls = "exp-badge-urgent";
+    return '<span class="exp-badge ' + cls + '">' + esc(resolution) + '</span>';
+  }
+
+  function expClear() {
+    expTickets = [];
+    expResults = [];
+    expRunning = false;
+    if (el.expTicketList)  el.expTicketList.classList.add("hidden");
+    if (el.expResultsWrap) el.expResultsWrap.classList.add("hidden");
+    if (el.expProgressWrap) el.expProgressWrap.classList.add("hidden");
+    if (el.expTbody)       el.expTbody.innerHTML = "";
+    if (el.expTicketsScroll) el.expTicketsScroll.innerHTML = "";
+    if (el.expLogBody)     el.expLogBody.innerHTML = "";
+    if (el.btnExpRun)      el.btnExpRun.disabled = true;
+    expSetStatus("", "IDLE");
+    expLog("Panel limpiado. Listo para nuevo escaneo.", "info");
+  }
+
+  async function expCopyTable() {
+    if (!expResults.length) { showToast("⚠ Sin resultados para copiar"); return; }
+    var html = '<table style="border-collapse:collapse;font-family:sans-serif;font-size:12px">';
+    html += '<tr><th style="border:1px solid #ccc;padding:6px;background:#1a1a2e;color:#00d4ff">TICKET</th><th style="border:1px solid #ccc;padding:6px;background:#1a1a2e;color:#a78bfa">RESUMEN DE COMUNICACIONES</th><th style="border:1px solid #ccc;padding:6px;background:#1a1a2e;color:#06ffa5">RESOLUCIÓN</th></tr>';
+    expResults.forEach(function(r) {
+      var id = '#' + (r.ticket?.id || '—');
+      var subj = r.ticket?.subject || '';
+      var summary = r.error ? '✗ ERROR: ' + r.error : (r.summary || '—');
+      var res = r.resolution || '—';
+      html += '<tr>';
+      html += '<td style="border:1px solid #ccc;padding:6px;font-weight:700">' + id + '<br><small>' + subj + '</small></td>';
+      html += '<td style="border:1px solid #ccc;padding:6px">' + summary + '</td>';
+      html += '<td style="border:1px solid #ccc;padding:6px;font-weight:700">' + res + '</td>';
+      html += '</tr>';
+    });
+    html += '</table>';
+    var plain = expResults.map(function(r) {
+      return '#' + (r.ticket?.id||'') + ' | ' + (r.summary||r.error||'—') + ' | ' + (r.resolution||'—');
+    }).join('\n');
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html],{type:'text/html'}), 'text/plain': new Blob([plain],{type:'text/plain'}) })]);
+      showToast("✓ Tabla copiada con colores");
+    } catch(_) {
+      copyText(plain).then(function(){ showToast("✓ Copiado como texto"); });
+    }
+  }
+
+  function expExportExcel() {
+    if (!expResults.length) { showToast("⚠ Sin resultados para exportar"); return; }
+    var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>';
+    html += '<table border="1" style="border-collapse:collapse;font-family:sans-serif;font-size:11px">';
+    html += '<tr><th style="background:#1a1a2e;color:#00d4ff">TICKET</th><th style="background:#1a1a2e;color:#00d4ff">ASUNTO</th><th style="background:#1a1a2e;color:#a78bfa">RESUMEN DE COMUNICACIONES</th><th style="background:#1a1a2e;color:#06ffa5">RESOLUCIÓN</th></tr>';
+    expResults.forEach(function(r) {
+      html += '<tr>';
+      html += '<td style="font-weight:700">#' + (r.ticket?.id||'') + '</td>';
+      html += '<td>' + (r.ticket?.subject||'') + '</td>';
+      html += '<td>' + (r.error ? '✗ ERROR: '+r.error : (r.summary||'—')) + '</td>';
+      html += '<td style="font-weight:700">' + (r.resolution||'—') + '</td>';
+      html += '</tr>';
+    });
+    html += '</table></body></html>';
+    var dateStr = new Date().toISOString().split('T')[0];
+    var blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'Analisis_Tickets_' + dateStr + '.xls';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast("✓ Excel exportado");
   }
 
   // ─── START ─────────────────────────────────────────────────────────────────

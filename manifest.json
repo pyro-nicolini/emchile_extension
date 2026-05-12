@@ -3,7 +3,7 @@
   "name": "EMChile AI Desk - By PyrO_Dev",
   "version": "1.0.0",
   "description": "Asistente IA de postventa para Zoho Desk — EMChile - By PyrO_Dev",
-  "permissions": ["storage", "clipboardWrite", "clipboardRead", "scripting"],
+  "permissions": ["storage", "clipboardWrite", "clipboardRead", "scripting", "tabs"],
   "host_permissions": [
     "https://*.zoho.com/*",
     "https://*.zohodesk.com/*",
@@ -25,7 +25,7 @@
       ],
       "js": ["content.js"],
       "run_at": "document_idle",
-      "all_frames": false
+      "all_frames": true
     }
   ],
   "action": {

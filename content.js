@@ -21,6 +21,10 @@
   let isResizing = false;
   let resizerEl = null;
 
+  let expFrame = null;
+  let expFab = null;
+  let expOpen = false;
+
   let fireMenuWidth = 450;
   let fireMenuHeight = 600;
   let fireMenuX = 20;
@@ -35,9 +39,11 @@
       fireMenuX = res.emchileFireMenuX || 20;
       fireMenuY = res.emchileFireMenuY || 20;
       
-      applyWidth(sidebarWidth);
-      injectStyles();
-      injectUI();
+      if (window.top === window) {
+        applyWidth(sidebarWidth);
+        injectStyles();
+        injectUI();
+      }
       applyFireMenuSize(fireMenuWidth, fireMenuHeight, fireMenuX, fireMenuY);
 
       if (res.emchileFireOcInput) {
@@ -58,6 +64,26 @@
       setupEmergencyClose();
       setTimeout(checkTicketChange, 1600);
       setInterval(scanMercadoPublicoResults, 3000);
+
+      // Inicializar dropdown de OCs en Mercado Público
+      if (window.location.href.includes("mercadopublico.cl")) {
+        initMPDropdown();
+      }
+
+      // Si estamos en Mercado Público y hay una OC en el hash, buscarla automáticamente
+      if (window.location.href.includes("mercadopublico.cl")) {
+        const hash = window.location.hash;
+        if (hash.startsWith("#search=")) {
+          const oc = hash.split("=")[1];
+          if (oc) {
+            console.log("EMChile: Búsqueda automática detectada para OC:", oc);
+            // Mayor retraso para asegurar que los scripts del portal carguen
+            setTimeout(() => searchOcInMercadoPublico(oc), 3000);
+            // Limpiar hash para no repetir
+            history.replaceState(null, null, ' ');
+          }
+        }
+      }
 
       // Check if we were in the middle of a Play X2 flow
       chrome.storage.local.get(["emchilePendingPlay2"], (res2) => {
@@ -146,6 +172,16 @@
         box-shadow: -8px 0 48px rgba(0,0,0,0.65);
       }
       #emchile-sidebar-frame.frame-open { right: 0; }
+
+      /* Disable transitions during resize/drag */
+      body.emchile-resizing #emchile-sidebar-frame,
+      body.emchile-resizing #emchile-resizer,
+      body.emchile-resizing #emchile-fire-menu {
+        transition: none !important;
+      }
+      body.emchile-resizing {
+        user-select: none !important;
+      }
       
       #emchile-resizer {
         position: fixed;
@@ -155,8 +191,107 @@
         cursor: col-resize;
         transform: translateX(50%);
         display: none;
+        transition: background 0.2s;
       }
       #emchile-resizer.resizer-open { display: block; }
+      #emchile-resizer:hover, body.emchile-resizing #emchile-resizer {
+        background: rgba(0, 212, 255, 0.15);
+        border-left: 1px solid rgba(0, 212, 255, 0.3);
+      }
+
+      /* Global overlay to capture events while resizing/dragging */
+      #emchile-global-overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        z-index: 2147483643;
+        display: none;
+        cursor: inherit;
+      }
+      body.emchile-resizing #emchile-global-overlay {
+        display: block;
+      }
+
+      /* EXPERIMENTAL FAB & FRAME */
+      #emchile-exp-fab {
+        position: fixed;
+        left: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 2147483640;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        background: linear-gradient(160deg, #10b981 0%, #047857 100%);
+        border: 1px solid rgba(52, 211, 153, 0.55);
+        border-radius: 14px;
+        padding: 14px 10px;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+        box-shadow: 0 0 22px rgba(16, 185, 129, 0.3), 0 6px 24px rgba(0,0,0,0.5);
+        min-width: 60px;
+      }
+
+      /* OC DROPDOWN - MERCADO PUBLICO */
+      .emchile-oc-dropdown {
+        position: absolute;
+        z-index: 2147483647;
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+        max-height: 400px;
+        overflow-y: auto;
+        min-width: 280px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        animation: emchile-fade-in 0.2s ease-out;
+      }
+      @keyframes emchile-fade-in {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .emchile-oc-item {
+        padding: 10px 14px;
+        border-bottom: 1px solid #21262d;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        transition: background 0.2s;
+      }
+      .emchile-oc-item:last-child { border-bottom: none; }
+      .emchile-oc-item:hover { background: #161b22; border-left: 3px solid #58a6ff; padding-left: 11px; }
+      .emchile-oc-oc { color: #58a6ff; font-weight: 700; font-size: 13px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+      .emchile-oc-meta { display: flex; justify-content: space-between; align-items: center; }
+      .emchile-oc-status { color: #8b949e; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+      .emchile-oc-monto { color: #3fb950; font-size: 11px; font-weight: 500; }
+      .emchile-oc-empty { padding: 20px; text-align: center; color: #8b949e; font-size: 12px; font-style: italic; }
+      .emchile-oc-header { padding: 8px 14px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 10px; color: #58a6ff; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-radius: 8px 8px 0 0; }
+      #emchile-exp-fab:hover {
+        border-color: rgba(52, 211, 153, 0.8);
+        box-shadow: 0 0 32px rgba(52, 211, 153, 0.6), 0 6px 24px rgba(0,0,0,0.55);
+        transform: translateY(-50%) scale(1.07);
+      }
+      #emchile-exp-fab .ef-icon { font-size: 22px; line-height: 1; filter: drop-shadow(0 0 5px rgba(52, 211, 153, 0.9)); }
+      #emchile-exp-fab .ef-text {
+        font-family: 'Inter', 'Segoe UI', sans-serif;
+        font-size: 9px; font-weight: 800;
+        color: #ecfdf5; letter-spacing: 1.5px; text-transform: uppercase;
+        text-shadow: 0 0 8px rgba(52, 211, 153, 0.65);
+      }
+      #emchile-exp-fab.fab-open { left: calc(var(--emchile-width, 500px) + 16px); }
+
+      #emchile-exp-frame {
+        position: fixed;
+        top: 0; left: calc(-1 * var(--emchile-width, 500px) - 20px);
+        width: var(--emchile-width, 500px); height: 100vh;
+        border: none;
+        z-index: 2147483641;
+        transition: left 0.32s cubic-bezier(0.4,0,0.2,1);
+        box-shadow: 8px 0 48px rgba(0,0,0,0.65);
+      }
+      #emchile-exp-frame.frame-open { left: 0; }
 
       /* FIRE FAB & MENU - BLUE SKY REDESIGN */
       #emchile-fire-fab {
@@ -483,6 +618,15 @@
     fireFab.addEventListener("click", handleFireFabClick);
     document.body.appendChild(fireFab);
 
+    // Experimental FAB
+    expFab = document.createElement("div");
+    expFab.id = "emchile-exp-fab";
+    expFab.setAttribute("role", "button");
+    expFab.setAttribute("aria-label", "EMChile Experimental");
+    expFab.innerHTML = '<div class="ef-icon">🧪</div><div class="ef-text">LAB</div>';
+    expFab.addEventListener("click", handleExpFabClick);
+    document.body.appendChild(expFab);
+
     // Fire Menu
     fireMenu = document.createElement("div");
     fireMenu.id = "emchile-fire-menu";
@@ -568,75 +712,111 @@
       fireMenu.classList.remove("fire-open");
     });
 
-    // Drag Logic
-    const dragHandle = document.getElementById("emchile-fire-drag-handle");
+    // Interaction State
     let isDragging = false;
+    let isFireResizingH = false;
+    let isFireResizingV = false;
     let dragStartX, dragStartY, initialLeft, initialTop;
+    let rafId = null;
 
+    // Drag Logic for Fire Menu
+    const dragHandle = document.getElementById("emchile-fire-drag-handle");
     dragHandle.addEventListener("mousedown", (e) => {
       if (e.target.id === "fire-config-gear" || e.target.id === "fire-close-x") return;
       isDragging = true;
+      document.body.classList.add("emchile-resizing");
       dragStartX = e.clientX;
       dragStartY = e.clientY;
       initialLeft = fireMenu.offsetLeft;
       initialTop = fireMenu.offsetTop;
       document.body.style.cursor = "move";
+      document.body.style.userSelect = "none";
       e.preventDefault();
     });
 
-    // Fire Resizer Logic
+    // Fire Resizer Logic (Horizontal)
     const fireResizerH = document.getElementById("emchile-fire-resizer-h");
-    let isFireResizingH = false;
     fireResizerH.addEventListener("mousedown", (e) => {
       isFireResizingH = true;
+      document.body.classList.add("emchile-resizing");
       document.body.style.cursor = "ew-resize";
+      document.body.style.userSelect = "none";
       e.preventDefault();
     });
 
-    window.addEventListener("mousemove", (e) => {
-      if (isDragging) {
-        const dx = e.clientX - dragStartX;
-        const dy = e.clientY - dragStartY;
-        fireMenu.style.left = (initialLeft + dx) + "px";
-        fireMenu.style.top = (initialTop + dy) + "px";
-      }
-      if (isFireResizingH) {
-        const newWidth = e.clientX - fireMenu.offsetLeft;
-        if (newWidth > 350 && newWidth < 1800) {
-          fireMenuWidth = newWidth;
-          applyFireMenuSize(fireMenuWidth, fireMenuHeight);
-        }
-      }
-      if (isFireResizingV) {
-        const newHeight = e.clientY - fireMenu.offsetTop;
-        const maxH = window.innerHeight - 50; 
-        if (newHeight > 300 && newHeight < maxH) {
-          fireMenuHeight = newHeight;
-          applyFireMenuSize(fireMenuWidth, fireMenuHeight);
-        }
-      }
-    });
-
+    // Fire Resizer Logic (Vertical)
     const fireResizerV = document.getElementById("emchile-fire-resizer-v");
-    let isFireResizingV = false;
     fireResizerV.addEventListener("mousedown", (e) => {
       isFireResizingV = true;
+      document.body.classList.add("emchile-resizing");
       document.body.style.cursor = "ns-resize";
+      document.body.style.userSelect = "none";
       e.preventDefault();
     });
 
+    // Unified Window MouseMove
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging && !isFireResizingH && !isFireResizingV && !isResizing) return;
+      
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (isDragging) {
+          const dx = e.clientX - dragStartX;
+          const dy = e.clientY - dragStartY;
+          fireMenu.style.left = (initialLeft + dx) + "px";
+          fireMenu.style.top = (initialTop + dy) + "px";
+        }
+        if (isFireResizingH) {
+          const newWidth = e.clientX - fireMenu.offsetLeft;
+          if (newWidth > 350 && newWidth < 1800) {
+            fireMenuWidth = newWidth;
+            applyFireMenuSize(fireMenuWidth, fireMenuHeight);
+          }
+        }
+        if (isFireResizingV) {
+          const newHeight = e.clientY - fireMenu.offsetTop;
+          const maxH = window.innerHeight - 50; 
+          if (newHeight > 300 && newHeight < maxH) {
+            fireMenuHeight = newHeight;
+            applyFireMenuSize(fireMenuWidth, fireMenuHeight);
+          }
+        }
+        if (isResizing) {
+          let newW = window.innerWidth - e.clientX;
+          // Enforce bounds: min 300px, max window - 50px
+          newW = Math.max(300, Math.min(newW, window.innerWidth - 50));
+          sidebarWidth = newW;
+          applyWidth(sidebarWidth);
+        }
+        rafId = null;
+      });
+    });
+
+    // Unified Window MouseUp
     window.addEventListener("mouseup", () => {
-      if (isDragging || isFireResizingH || isFireResizingV) {
-        isDragging = false;
-        isFireResizingH = false;
-        isFireResizingV = false;
-        document.body.style.cursor = "default";
-        chrome.storage.local.set({ 
-          emchileFireMenuWidth: fireMenuWidth,
-          emchileFireMenuHeight: fireMenuHeight,
-          emchileFireMenuX: fireMenu.offsetLeft,
-          emchileFireMenuY: fireMenu.offsetTop
-        });
+      if (isDragging || isFireResizingH || isFireResizingV || isResizing) {
+        document.body.classList.remove("emchile-resizing");
+        if (isResizing) {
+          isResizing = false;
+          sidebarFrame.style.pointerEvents = "auto";
+          chrome.storage.local.set({ emchileSidebarWidth: sidebarWidth });
+        } else {
+          isDragging = false;
+          isFireResizingH = false;
+          isFireResizingV = false;
+          chrome.storage.local.set({ 
+            emchileFireMenuWidth: fireMenuWidth,
+            emchileFireMenuHeight: fireMenuHeight,
+            emchileFireMenuX: fireMenu.offsetLeft,
+            emchileFireMenuY: fireMenu.offsetTop
+          });
+        }
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        if (rafId) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
       }
     });
 
@@ -648,7 +828,6 @@
     const playBtn = document.getElementById("fire-play-btn");
     if (playBtn) {
       playBtn.addEventListener("click", () => {
-        console.log("EMChile: Play button clicked");
         handleFirePlayClick();
       });
     }
@@ -675,36 +854,34 @@
     sidebarFrame = document.createElement("iframe");
     sidebarFrame.id = "emchile-sidebar-frame";
     sidebarFrame.title = "EMChile AI Desk";
-    sidebarFrame.src = chrome.runtime.getURL("sidebar.html");
+    sidebarFrame.src = chrome.runtime.getURL("sidebar.html?v=" + Date.now());
     document.body.appendChild(sidebarFrame);
+
+    // Experimental iframe
+    expFrame = document.createElement("iframe");
+    expFrame.id = "emchile-exp-frame";
+    expFrame.title = "EMChile Experimental";
+    expFrame.src = chrome.runtime.getURL("sidebar.html?mode=exp&v=" + Date.now() + "#exp");
+    document.body.appendChild(expFrame);
 
     // Resizer handle
     resizerEl = document.createElement("div");
     resizerEl.id = "emchile-resizer";
     document.body.appendChild(resizerEl);
 
-    // Setup drag events
+    // Global overlay for resize/drag
+    const overlay = document.createElement("div");
+    overlay.id = "emchile-global-overlay";
+    document.body.appendChild(overlay);
+
+    // Setup drag events for AI Desk sidebar
     resizerEl.addEventListener("mousedown", (e) => {
       isResizing = true;
+      document.body.classList.add("emchile-resizing");
       document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
       sidebarFrame.style.pointerEvents = "none";
-    });
-
-    document.addEventListener("mousemove", (e) => {
-      if (!isResizing) return;
-      let newW = window.innerWidth - e.clientX;
-      newW = Math.max(350, Math.min(newW, window.innerWidth - 100)); // min 350px, max (width - 100px)
-      sidebarWidth = newW;
-      applyWidth(sidebarWidth);
-    });
-
-    document.addEventListener("mouseup", () => {
-      if (isResizing) {
-        isResizing = false;
-        document.body.style.userSelect = "";
-        sidebarFrame.style.pointerEvents = "auto";
-        chrome.storage.local.set({ emchileSidebarWidth: sidebarWidth });
-      }
+      e.preventDefault();
     });
   }
 
@@ -714,6 +891,7 @@
     if (fireMenuOpen) {
       fireMenu.classList.add("fire-open");
       if (sidebarOpen) closeSidebar();
+      if (expOpen) closeExpSidebar();
     } else {
       fireMenu.classList.remove("fire-open");
     }
@@ -1124,8 +1302,9 @@
 
                 if (!rawText) rawText = t.summary || "";
 
+                let safeText = rawText.replace(/<img\b[^>]*>/gi, "");
                 const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = rawText;
+                tempDiv.innerHTML = safeText;
                 
                 const quotes = tempDiv.querySelectorAll('blockquote, .gmail_quote, .zmail_extra, .zd-quoted-text');
                 let bodyText = "";
@@ -1511,11 +1690,43 @@
       fireMenuOpen = false;
       fireMenu.classList.remove("fire-open");
     }
+    if (expOpen) {
+      closeExpSidebar();
+    }
     if (sidebarOpen) {
       closeSidebar();
     } else {
       openSidebar();
     }
+  }
+
+  function handleExpFabClick() {
+    if (fireMenuOpen) {
+      fireMenuOpen = false;
+      fireMenu.classList.remove("fire-open");
+    }
+    if (sidebarOpen) {
+      closeSidebar();
+    }
+    if (expOpen) {
+      closeExpSidebar();
+    } else {
+      openExpSidebar();
+    }
+  }
+
+  function openExpSidebar() {
+    expFrame.classList.add("frame-open");
+    expFab.classList.add("fab-open");
+    expFab.querySelector(".ef-text").textContent = "Cerrar";
+    expOpen = true;
+  }
+
+  function closeExpSidebar() {
+    expFrame.classList.remove("frame-open");
+    expFab.classList.remove("fab-open");
+    expFab.querySelector(".ef-text").textContent = "LAB";
+    expOpen = false;
   }
 
   function openSidebar() {
@@ -2241,35 +2452,203 @@
   // ─── SIDEBAR COMMUNICATION ─────────────────────────────────────────────────
   function postToSidebar(msg) {
     sidebarFrame?.contentWindow?.postMessage(msg, "*");
+    expFrame?.contentWindow?.postMessage(msg, "*");
   }
 
   window.addEventListener("message", (evt) => {
     if (evt.data?.source !== "emchile-sidebar") return;
-    const { type, data } = evt.data;
+    handleSidebarMessage(evt.data);
+  });
+
+  chrome.runtime.onMessage.addListener((msg) => {
+    console.log("%c[EMChile] Content received:", "color:cyan;font-weight:bold;", msg);
+    handleSidebarMessage(msg);
+  });
+
+  function handleSidebarMessage(msg) {
+    const { type, data } = msg;
+    const isTop = window.top === window;
+
     switch (type) {
       case "SIDEBAR_READY":
-        checkTicketChange();
+        if (isTop) checkTicketChange();
         break;
       case "RE_ANALYZE":
-        if (!isAnalyzing) triggerAnalysis(data?.responseContext || null);
+        if (isTop && !isAnalyzing) triggerAnalysis(data?.responseContext || null);
         break;
       case "CLOSE_SIDEBAR":
-        closeSidebar();
+        if (isTop) closeSidebar();
         break;
       case "INSERT_IN_ZOHO":
+        // El insert puede ser en un iframe (el editor de Zoho está en un iframe)
         insertTextInZoho(data?.text || "");
         break;
       case "AUTO_FILL_FIELDS":
-        autoFillTicketFields(data || {});
+        if (isTop) autoFillTicketFields(data || {});
         break;
       case "REQUEST_LATEST_DATE":
-        postToSidebar({ type: "LATEST_DATE_RESULT", data: { date: extractLatestEmailDate(), rowIdx: data?.rowIdx } });
+        if (isTop) postToSidebar({ type: "LATEST_DATE_RESULT", data: { date: extractLatestEmailDate(), rowIdx: data?.rowIdx } });
         break;
       case "SEARCH_OC_GLOBAL":
+        // Si estamos en Zoho, solo el frame superior debe manejar la búsqueda global
+        if (window.location.href.includes("desk.zoho") && !isTop) return;
         searchOcByDomain(data?.oc);
         break;
+      case "SEARCH_OC_MP":
+        // En Mercado Público dejamos que todos los frames lo intenten
+        forceSearchInMercadoPublico(data?.oc);
+        break;
+      case "SCAN_OPEN_TICKETS":
+        if (isTop) scanOpenTicketsDOM(data?.count || 10, data?.mode || "last", data?.since || "");
+        break;
+      case "FETCH_TICKET_CONVERSATION":
+        if (isTop) fetchTicketConversation(data?.id);
+        break;
     }
-  });
+  }
+
+  // ─── EXPERIMENTAL SCAN TICKETS ─────────────────────────────────────────────
+  function scanOpenTicketsDOM(count, mode, since) {
+    // 1. Selector principal de filas de ticket (aplica a Zoho Desk V1 y V2)
+    const rows = Array.from(document.querySelectorAll('.ticket-row, .lv-row, [class*="ticketRow"], tr[data-ticketid], [data-id^="ticket"]'));
+    let tickets = [];
+
+    rows.forEach(row => {
+      let tid = row.getAttribute('data-ticketid') || row.querySelector('[data-ticketid]')?.getAttribute('data-ticketid');
+      if (!tid) {
+        // Fallback id extraction
+        let textId = row.querySelector('.ticket-id, [class*="ticketId"], a[href*="tickets/"]')?.innerText;
+        if (textId) tid = textId.replace(/\D/g, '');
+      }
+
+      let subject = row.querySelector('.ticket-subject, .subject, [class*="subject"]')?.innerText?.trim() || "";
+      let date = row.querySelector('.ticket-date, .date, [class*="date"], time')?.innerText?.trim() || "";
+      let status = row.querySelector('.ticket-status, .status, [class*="status"]')?.innerText?.trim() || "";
+
+      // Si no encontramos ID en DOM elements, intentamos extraer de la URL del enlace del ticket
+      if (!tid) {
+        let link = row.querySelector('a[href*="/tickets/"]');
+        if (link) {
+          let match = link.href.match(/\/tickets\/(\d+)/);
+          if (match) tid = match[1];
+        }
+      }
+
+      if (tid) {
+        let st = status.toLowerCase();
+        // Only include tickets that are explicitly marked as "Abierto" or "Open"
+        // Also handling fallback if status might be an icon (if explicitly empty, maybe skip or include?)
+        if (st.includes("abierto") || st.includes("open") || !status) {
+          tickets.push({ id: tid, subject, date, status: status || "Abierto" });
+        }
+      }
+    });
+
+    // Remove duplicates
+    let unique = [];
+    let seen = new Set();
+    for (let t of tickets) {
+      if (!seen.has(t.id)) {
+        seen.add(t.id);
+        unique.push(t);
+      }
+    }
+    tickets = unique;
+
+    // Filter by 'since' date if provided
+    if (since) {
+      let sinceTs = new Date(since).getTime();
+      if (!isNaN(sinceTs)) {
+        tickets = tickets.filter(t => {
+           // Basic attempt to parse the ticket date if it matches "dd-mm-yyyy" or similar
+           // Or just leave it if unparseable, this is experimental
+           return true; 
+        });
+      }
+    }
+
+    // Sort/Slice
+    if (mode === "last") {
+      tickets = tickets.slice(0, count); // Los primeros N de la lista (asumiendo que arriba están los recientes)
+    } else {
+      tickets = tickets.slice(Math.max(tickets.length - count, 0)); // Los últimos N de la lista
+    }
+
+    postToSidebar({ type: "OPEN_TICKETS_RESULT", data: { tickets } });
+  }
+
+  async function fetchTicketConversation(internalId) {
+    if (!internalId) {
+      postToSidebar({ type: "FETCH_CONV_RESULT", data: { id: internalId, conversation: "" } });
+      return;
+    }
+
+    try {
+      const storage = await new Promise(resolve => chrome.storage.local.get(['firePortalName', 'fireOrgId'], resolve));
+      let portalName = storage.firePortalName || "emchile"; 
+      if (!storage.firePortalName) {
+          const pathParts = window.location.pathname.split('/');
+          if (pathParts.length > 2 && pathParts[1] === 'support') {
+              portalName = pathParts[2];
+          }
+      }
+      const manualOrgId = storage.fireOrgId || "";
+      const csrf = (() => {
+        const match = document.cookie.match(/iamcsr=([^;]+)/) || document.cookie.match(/_zcsr_tmp=([^;]+)/);
+        return match ? match[1] : "";
+      })();
+
+      const endpoints = [
+          `/supportapi/zd/${portalName}/api/v1/tickets/${internalId}/threads?limit=100`,
+          `/api/v1/tickets/${internalId}/threads?limit=100`,
+          `https://${window.location.hostname}/supportapi/zd/${portalName}/api/v1/tickets/${internalId}/threads?limit=100`
+      ];
+      
+      let data = null;
+      const headers = { 'Accept': 'application/json, text/plain, */*' };
+      if (csrf) headers['X-ZCSRF-TOKEN'] = `iamcsr=${csrf}`;
+      if (manualOrgId) headers['orgid'] = manualOrgId;
+
+      for (let url of endpoints) {
+          try {
+              const res = await fetch(url, { headers });
+              if (res.ok) {
+                  const json = await res.json();
+                  data = json.data || json;
+                  if (data) break;
+              }
+          } catch(e) {}
+      }
+
+      if (!data) throw new Error("Acceso denegado o no encontrado");
+
+      const threads = Array.isArray(data) ? data : [data];
+      let fullText = [];
+      
+      // Order older first or newest first? User wants context, so chronological is usually best.
+      for (const t of threads) {
+          const author = t.author || {};
+          const senderName = author.name || t.sender || "Desconocido";
+          const d = new Date(t.createdTime);
+          const timeStr = t.createdTime ? `${d.toLocaleDateString()} ${d.toLocaleTimeString()}` : "";
+          
+          let rawText = t.content || t.summary || "";
+          if (rawText) {
+             let safeText = rawText.replace(/<img\b[^>]*>/gi, "");
+             const tempDiv = document.createElement('div');
+             tempDiv.innerHTML = safeText;
+             // Remove blockquotes for cleaner text
+             tempDiv.querySelectorAll('blockquote, .gmail_quote, .zmail_extra, .zd-quoted-text').forEach(e => e.remove());
+             let bodyText = tempDiv.innerText.trim();
+             if (bodyText) fullText.push(`[${timeStr}] ${senderName}: ${bodyText}`);
+          }
+      }
+
+      postToSidebar({ type: "FETCH_CONV_RESULT", data: { id: internalId, conversation: fullText.reverse().join('\n\n') } });
+    } catch (e) {
+      postToSidebar({ type: "FETCH_CONV_RESULT", data: { id: internalId, conversation: "(Error extrayendo conversación: " + e.message + ")" } });
+    }
+  }
 
   // ─── DOMAIN BASED SEARCH ───────────────────────────────────────────────────
   function searchOcByDomain(ocNumber) {
@@ -2278,9 +2657,24 @@
     if (window.location.href.includes("mercadopublico.cl")) {
       searchOcInMercadoPublico(ocNumber);
     } else if (window.location.href.includes("desk.zoho")) {
+      // En Zoho Desk solo el TOP frame debe actuar
+      if (window.top !== window) return;
       searchOcInZoho(ocNumber);
     } else {
       postToSidebar({ type: "TOAST", data: { msg: "⚠ Debes estar en Zoho Desk o Mercado Público" } });
+    }
+  }
+
+  function forceSearchInMercadoPublico(ocNumber) {
+    if (!ocNumber) return;
+    if (window.location.href.includes("mercadopublico.cl")) {
+      postToSidebar({ type: "TOAST", data: { msg: "EMChile: Iniciando búsqueda en portal..." } });
+      searchOcInMercadoPublico(ocNumber);
+    } else {
+      // Si no estamos en Mercado Público, abrir en nueva pestaña con el comando de búsqueda en el hash
+      const url = "https://www.mercadopublico.cl/Home/BusquedaOC#search=" + encodeURIComponent(ocNumber);
+      window.open(url, "_blank");
+      postToSidebar({ type: "TOAST", data: { msg: "Abriendo Mercado Público..." } });
     }
   }
 
@@ -2345,66 +2739,227 @@
     }
   }
 
-  // ─── MERCADO PUBLICO SEARCH ────────────────────────────────────────────────
-  function searchOcInMercadoPublico(ocNumber) {
-    // 1. Buscar input directamente por su placeholder (como se ve en la captura)
-    let inputEl = document.querySelector('input[placeholder*="697-475"]');
-    let btnEl = null;
+  let isLearningMode = false;
+  let pendingOcToPaste = null;
+  let savedMPSelector = null;
 
-    if (!inputEl) {
-      // 2. Fallback: buscar cualquier input de texto dentro de algo que diga "Buscar por ID"
-      const labels = Array.from(document.querySelectorAll('label, span, div, h1, h2, h3, h4, h5, h6, p'));
-      const idLabel = labels.find(l => l.textContent.trim().toUpperCase() === "BUSCAR POR ID");
+  // Cargar selector guardado al inicio
+  chrome.storage.local.get(["emchileMPSavedSelector"], (res) => {
+    if (res.emchileMPSavedSelector) savedMPSelector = res.emchileMPSavedSelector;
+  });
+
+  // Listener global para el modo aprendizaje
+  window.addEventListener("mousedown", (e) => {
+    if (!isLearningMode || !pendingOcToPaste) return;
+    
+    const el = e.target.closest("input");
+    if (el && (el.type === "text" || !el.type)) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Generar selector simple
+      let selector = "";
+      if (el.id) selector = `#${el.id}`;
+      else if (el.name) selector = `input[name="${el.name}"]`;
+      else if (el.placeholder) selector = `input[placeholder="${el.placeholder}"]`;
+      else selector = "input[type='text']"; // Muy genérico, pero mejor que nada
+      
+      savedMPSelector = selector;
+      chrome.storage.local.set({ emchileMPSavedSelector: selector });
+      
+      // Ejecutar la búsqueda pendiente
+      isLearningMode = false;
+      const oc = pendingOcToPaste;
+      pendingOcToPaste = null;
+      
+      // Feedback visual
+      el.style.outline = "3px solid #00d4ff";
+      el.style.background = "#fff9c4";
+      setTimeout(() => { el.style.outline = ""; el.style.background = ""; }, 1500);
+      
+      // Pegar el valor (el buscador ya está en 'el')
+      forceSetInElement(el, oc);
+      postToSidebar({ type: "TOAST", data: { msg: "✓ Buscador vinculado y OC pegada" } });
+    }
+  }, true);
+
+  function forceSetInElement(el, val) {
+    try {
+      el.focus();
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      if (nativeSetter) nativeSetter.call(el, val);
+      else el.value = val;
+      el.setAttribute('value', val);
+      ['input', 'change', 'blur'].forEach(ev => el.dispatchEvent(new Event(ev, { bubbles: true })));
+      
+      // Intentar Enter automático tras un breve delay
+      setTimeout(() => {
+        const enterProps = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
+        el.dispatchEvent(new KeyboardEvent('keydown', enterProps));
+        el.dispatchEvent(new KeyboardEvent('keypress', enterProps));
+        el.dispatchEvent(new KeyboardEvent('keyup', enterProps));
+        if (el.form) el.form.submit();
+      }, 500);
+    } catch(e) { console.error(e); }
+  }
+
+  // ─── MERCADO PUBLICO SEARCH ────────────────────────────────────────────────
+  function searchOcInMercadoPublico(ocNumber, retryCount = 0) {
+    function findInDocument(doc) {
+      let inputEl = null;
+      
+      // 1. Intentar con el selector guardado si existe
+      if (savedMPSelector) {
+        inputEl = doc.querySelector(savedMPSelector);
+        if (inputEl) return inputEl;
+      }
+
+      // 2. Selectores agresivos
+      const inputSelectors = [
+        'input[placeholder*="697-475"]',
+        'input[placeholder*="ID"]',
+        'input[placeholder*="OC"]',
+        'input[placeholder*="Orden"]',
+        '#txtIdOrdenCompra',
+        '#txtIdOC',
+        '.search-box input',
+        'input[name*="OC" i]',
+        'input[name*="Orden" i]',
+        'input[type="text"][maxlength="30"]'
+      ];
+      
+      for (const sel of inputSelectors) {
+        inputEl = doc.querySelector(sel);
+        if (inputEl) return inputEl;
+      }
+
+      const labels = Array.from(doc.querySelectorAll('label, span, div, h1, h2, h3, h4, h5, h6, p'));
+      const idLabel = labels.find(l => {
+        const t = l.textContent.trim().toUpperCase();
+        return t === "BUSCAR POR ID" || t.includes("BUSCAR POR ID") || t.includes("ORDEN DE COMPRA");
+      });
       if (idLabel) {
         const container = idLabel.closest("div, td, tr, table, section, fieldset");
         if (container) {
-          inputEl = container.querySelector('input[type="text"]');
+          inputEl = container.querySelector('input[type="text"], input:not([type])');
         }
+      }
+      return inputEl;
+    }
+
+    // 1. Buscar en el documento principal
+    let targetInput = findInDocument(document);
+    let targetDoc = document;
+
+    // 2. Si no se encuentra, buscar en IFRAMES
+    if (!targetInput) {
+      const iframes = document.querySelectorAll('iframe');
+      for (const frame of iframes) {
+        try {
+          const fDoc = frame.contentDocument || frame.contentWindow.document;
+          if (fDoc) {
+            targetInput = findInDocument(fDoc);
+            if (targetInput) {
+              targetDoc = fDoc;
+              break;
+            }
+          }
+        } catch(e) {}
       }
     }
 
-    if (inputEl) {
-      // Buscar el botón correspondiente
-      // Primero intentar un botón que diga "Buscar ID"
-      const allBtns = Array.from(document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn'));
-      btnEl = allBtns.find(b => {
-        const txt = (b.value || b.textContent || "").trim().toUpperCase();
-        return txt === "BUSCAR ID" || txt.includes("BUSCAR ID");
-      });
+    // Si no se encuentra y hay reintentos, esperar
+    if (!targetInput && retryCount < 5) {
+      setTimeout(() => searchOcInMercadoPublico(ocNumber, retryCount + 1), 1000);
+      return;
+    }
 
-      // Si no, buscar el botón de submit más cercano al input
-      if (!btnEl) {
-        let parent = inputEl.parentElement;
-        for (let i = 0; i < 5; i++) { // subir hasta 5 niveles
-          if (!parent) break;
-          btnEl = parent.querySelector('input[type="submit"], input[type="button"], button');
-          if (btnEl) break;
-          parent = parent.parentElement;
-        }
-      }
-
-      // Rellenar el input
-      inputEl.value = ocNumber;
-      // Disparar eventos nativos para que React/Angular/ASP.NET registren el cambio
-      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-      inputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-      
-      if (btnEl) {
-        btnEl.click();
-        postToSidebar({ type: "TOAST", data: { msg: "Buscando: " + ocNumber } });
-      } else {
-        // Fallback: si no hay botón, intentar enviar el formulario
-        if (inputEl.form) {
-          inputEl.form.submit();
-          postToSidebar({ type: "TOAST", data: { msg: "Enviando búsqueda: " + ocNumber } });
-        } else {
-          postToSidebar({ type: "TOAST", data: { msg: "Pegado: " + ocNumber + " (botón no encontrado)" } });
-        }
-      }
+    if (targetInput) {
+      forceSetInElement(targetInput, ocNumber);
+      postToSidebar({ type: "TOAST", data: { msg: "Buscando: " + ocNumber } });
     } else {
-      postToSidebar({ type: "TOAST", data: { msg: "⚠ No se encontró el campo 'Buscar por ID'" } });
+      // Activar modo aprendizaje
+      isLearningMode = true;
+      pendingOcToPaste = ocNumber;
+      postToSidebar({ type: "TOAST", data: { msg: "⚠ Haz clic en el campo de búsqueda de MP para vincularlo" } });
     }
+  }
+
+  // ─── MERCADO PUBLICO DROPDOWN ─────────────────────────────────────────────
+  let mpDropdownEl = null;
+
+  function initMPDropdown() {
+    // Escuchar eventos de foco en inputs
+    document.addEventListener("focusin", (e) => {
+      const el = e.target;
+      if (el.tagName === "INPUT" && (el.type === "text" || el.type === "search")) {
+        const ph = (el.placeholder || "").toLowerCase();
+        const id = (el.id || "").toLowerCase();
+        const text = el.parentElement ? el.parentElement.textContent.toUpperCase() : "";
+        
+        // Verificar si parece un campo de búsqueda de OC
+        if (ph.includes("697-475") || ph.includes("id") || id.includes("search") || text.includes("BUSCAR POR ID")) {
+          showOcDropdown(el);
+        }
+      }
+    });
+
+    document.addEventListener("click", (e) => {
+      if (mpDropdownEl && !mpDropdownEl.contains(e.target) && e.target.tagName !== "INPUT") {
+        hideOcDropdown();
+      }
+    });
+
+    window.addEventListener("scroll", hideOcDropdown, true);
+    window.addEventListener("resize", hideOcDropdown);
+  }
+
+  function showOcDropdown(targetEl) {
+    chrome.storage.local.get(["ocTracking"], (res) => {
+      const ocs = res.ocTracking || [];
+      if (ocs.length === 0) return;
+
+      if (!mpDropdownEl) {
+        mpDropdownEl = document.createElement("div");
+        mpDropdownEl.className = "emchile-oc-dropdown";
+        document.body.appendChild(mpDropdownEl);
+      }
+
+      const rect = targetEl.getBoundingClientRect();
+      mpDropdownEl.style.top = (window.scrollY + rect.bottom + 5) + "px";
+      mpDropdownEl.style.left = (window.scrollX + rect.left) + "px";
+      mpDropdownEl.style.width = Math.max(280, rect.width) + "px";
+      mpDropdownEl.style.display = "block";
+
+      let html = `<div class="emchile-oc-header">OCs Recientes (AI Desk)</div>`;
+      ocs.slice(0, 15).forEach(item => {
+        html += `
+          <div class="emchile-oc-item" data-oc="${item.oc}">
+            <div class="emchile-oc-oc">${item.oc}</div>
+            <div class="emchile-oc-meta">
+              <span class="emchile-oc-status">${item.mp || 'PENDIENTE'}</span>
+              <span class="emchile-oc-monto">${item.monto || ''}</span>
+            </div>
+          </div>
+        `;
+      });
+      mpDropdownEl.innerHTML = html;
+
+      // Eventos
+      mpDropdownEl.querySelectorAll(".emchile-oc-item").forEach(item => {
+        item.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const oc = item.getAttribute("data-oc");
+          searchOcInMercadoPublico(oc);
+          hideOcDropdown();
+        };
+      });
+    });
+  }
+
+  function hideOcDropdown() {
+    if (mpDropdownEl) mpDropdownEl.style.display = "none";
   }
 
   function normalizeEstadoMP(raw) {
@@ -2468,7 +3023,30 @@
     }
     
     if (results.length > 0) {
+      // Enviar a la sidebar actual si existe
       postToSidebar({ type: "UPDATE_OC_FROM_MP", data: results });
+      
+      // Actualizar storage para que otras pestañas (como la de Zoho) se sincronicen
+      chrome.storage.local.get(["ocTracking"], (res) => {
+        let ocRows = res.ocTracking || [];
+        let updated = false;
+        results.forEach(mpRes => {
+          let row = ocRows.find(r => r.oc.toUpperCase() === mpRes.oc.toUpperCase());
+          if (row) {
+            if (mpRes.estado && row.mp !== mpRes.estado) {
+              row.mp = mpRes.estado;
+              updated = true;
+            }
+            if (mpRes.monto && row.monto !== mpRes.monto) {
+              row.monto = mpRes.monto;
+              updated = true;
+            }
+          }
+        });
+        if (updated) {
+          chrome.storage.local.set({ ocTracking: ocRows });
+        }
+      });
     }
   }
 

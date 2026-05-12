@@ -1685,3 +1685,581 @@ body::after {
   text-decoration: line-through;
   text-decoration-color: rgba(0, 212, 255, 0.4);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   EXPERIMENTAL SIDEBAR — Futuristic Mass Analysis Engine
+═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ic-exp button glow */
+.ic-exp {
+  color: #a855f7 !important;
+}
+.ic-exp:hover {
+  border-color: rgba(168,85,247,0.6) !important;
+  color: #c084fc !important;
+  background: rgba(168,85,247,0.08) !important;
+  box-shadow: 0 0 12px rgba(168,85,247,0.3) !important;
+}
+.ic-exp.active {
+  border-color: rgba(168,85,247,0.7) !important;
+  color: #e879f9 !important;
+  background: rgba(168,85,247,0.12) !important;
+}
+
+/* sv-exp — full-height flex column, not centered */
+.sv-exp {
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  padding: 0 !important;
+  min-height: unset !important;
+  height: 100%;
+  gap: 0 !important;
+  overflow-y: auto;
+}
+
+/* ── Exp Header ─────────────────────────────────────────────────────────────── */
+.exp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  background: linear-gradient(135deg, rgba(168,85,247,0.08) 0%, rgba(0,212,255,0.04) 100%);
+  border-bottom: 1px solid rgba(168,85,247,0.2);
+  flex-shrink: 0;
+}
+.exp-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.exp-header-icon {
+  font-size: 22px;
+  filter: drop-shadow(0 0 8px rgba(168,85,247,0.8));
+  animation: float 3.5s ease-in-out infinite;
+}
+.exp-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.exp-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  color: #c084fc;
+  text-shadow: 0 0 10px rgba(168,85,247,0.5);
+  text-transform: uppercase;
+}
+.exp-subtitle {
+  font-size: 8px;
+  color: var(--t3);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+/* Status badge */
+.exp-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(168,85,247,0.25);
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--t3);
+  text-transform: uppercase;
+  transition: var(--tr);
+}
+.exp-status-badge.running {
+  border-color: rgba(0,212,255,0.5);
+  color: var(--cyan);
+  box-shadow: 0 0 10px rgba(0,212,255,0.15);
+}
+.exp-status-badge.done {
+  border-color: rgba(6,255,165,0.5);
+  color: var(--green);
+}
+.exp-status-badge.error {
+  border-color: rgba(255,71,87,0.5);
+  color: var(--red);
+}
+.exp-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t3);
+  transition: background var(--tr);
+}
+.exp-status-badge.running .exp-status-dot {
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+  animation: blink 1s ease-in-out infinite;
+}
+.exp-status-badge.done .exp-status-dot {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+.exp-status-badge.error .exp-status-dot {
+  background: var(--red);
+  box-shadow: 0 0 6px var(--red);
+}
+
+/* ── Config Panel ───────────────────────────────────────────────────────────── */
+.exp-config-panel {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+.exp-config-grid {
+  display: grid;
+  grid-template-columns: 80px 1fr 130px;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.exp-cfg-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.exp-cfg-label {
+  font-size: 7px;
+  font-weight: 700;
+  color: var(--t3);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.exp-cfg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.exp-cfg-input {
+  width: 100%;
+  background: var(--bg4);
+  border: 1px solid var(--border);
+  color: var(--t1);
+  padding: 5px 8px;
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+  transition: var(--tr);
+}
+.exp-cfg-input:focus {
+  border-color: rgba(168,85,247,0.5);
+  box-shadow: 0 0 0 2px rgba(168,85,247,0.1);
+}
+input[type="number"].exp-cfg-input {
+  width: 60px;
+}
+.exp-cfg-hint {
+  font-size: 9px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.exp-cfg-select {
+  width: 100%;
+  background: var(--bg4);
+  border: 1px solid var(--border);
+  color: var(--t1);
+  padding: 5px 8px;
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 10px;
+  outline: none;
+  cursor: pointer;
+  transition: var(--tr);
+}
+.exp-cfg-select:focus {
+  border-color: rgba(168,85,247,0.5);
+}
+
+/* Actions row */
+.exp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-exp-scan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(168,85,247,0.05) 100%);
+  border: 1px solid rgba(168,85,247,0.45);
+  color: #c084fc;
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: var(--tr);
+}
+.btn-exp-scan:hover:not(:disabled) {
+  background: rgba(168,85,247,0.25);
+  box-shadow: 0 0 14px rgba(168,85,247,0.3);
+  color: #e879f9;
+}
+.btn-exp-scan:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-exp-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: linear-gradient(135deg, rgba(0,212,255,0.12) 0%, rgba(168,85,247,0.08) 100%);
+  border: 1px solid rgba(0,212,255,0.4);
+  color: var(--cyan);
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: var(--tr);
+}
+.btn-exp-run:hover:not(:disabled) {
+  background: rgba(0,212,255,0.2);
+  box-shadow: 0 0 14px rgba(0,212,255,0.3);
+}
+.btn-exp-run:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-exp-run.running {
+  animation: pulseGlow 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes pulseGlow {
+  0%,100% { box-shadow: 0 0 8px rgba(0,212,255,0.3); }
+  50%      { box-shadow: 0 0 20px rgba(0,212,255,0.6); }
+}
+
+.btn-exp-icon { font-size: 11px; }
+
+.btn-exp-clear {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid rgba(255,71,87,0.25);
+  color: rgba(255,71,87,0.6);
+  padding: 5px 10px;
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 9px;
+  cursor: pointer;
+  transition: var(--tr);
+}
+.btn-exp-clear:hover {
+  border-color: var(--red);
+  color: var(--red);
+  background: rgba(255,71,87,0.06);
+}
+
+/* Progress bar */
+.exp-progress-wrap {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+.exp-progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 9px;
+  color: var(--t2);
+}
+.exp-progress-track {
+  height: 4px;
+  background: var(--bg5);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.exp-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--purple) 0%, var(--cyan) 100%);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+  box-shadow: 0 0 6px rgba(0,212,255,0.4);
+}
+
+/* ── Ticket List Preview ─────────────────────────────────────────────────────── */
+.exp-ticket-list {
+  margin: 10px 14px 0;
+  background: var(--bg2);
+  border: 1px solid rgba(168,85,247,0.18);
+  border-radius: var(--rl);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.exp-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  background: rgba(168,85,247,0.06);
+  border-bottom: 1px solid rgba(168,85,247,0.14);
+}
+.exp-list-title {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #a78bfa;
+  text-transform: uppercase;
+}
+.exp-list-count {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--cyan);
+  background: var(--cyan4);
+  border: 1px solid rgba(0,212,255,0.2);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.exp-tickets-scroll {
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.exp-ticket-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  transition: var(--tr);
+  cursor: default;
+}
+.exp-ticket-chip:hover { border-color: rgba(168,85,247,0.3); }
+.exp-chip-id {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cyan);
+  min-width: 52px;
+}
+.exp-chip-subject {
+  font-size: 9px;
+  color: var(--t2);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exp-chip-date {
+  font-size: 8px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.exp-chip-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--t3);
+}
+.exp-chip-status.pending  { background: var(--t3); }
+.exp-chip-status.running  { background: var(--cyan); box-shadow: 0 0 5px var(--cyan); animation: blink 1s infinite; }
+.exp-chip-status.done     { background: var(--green); box-shadow: 0 0 5px var(--green); }
+.exp-chip-status.error    { background: var(--red); box-shadow: 0 0 5px var(--red); }
+
+/* ── Results Table ───────────────────────────────────────────────────────────── */
+.exp-results-wrap {
+  margin: 10px 14px 0;
+  border: 1px solid rgba(0,212,255,0.18);
+  border-radius: var(--rl);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.exp-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, rgba(0,212,255,0.07) 0%, rgba(168,85,247,0.05) 100%);
+  border-bottom: 1px solid rgba(0,212,255,0.14);
+}
+.exp-results-title {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(0,212,255,0.4);
+}
+.exp-results-actions {
+  display: flex;
+  gap: 6px;
+}
+.exp-table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 340px;
+}
+.exp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.exp-th {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 7.5px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: var(--t2);
+  background: var(--bg4);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  white-space: nowrap;
+}
+.exp-th-ticket    { width: 90px; color: var(--cyan); }
+.exp-th-summary   { color: #a78bfa; }
+.exp-th-resolution { width: 120px; color: var(--green); }
+
+/* Table rows */
+.exp-tr {
+  border-bottom: 1px solid var(--border);
+  transition: background var(--tr);
+}
+.exp-tr:hover { background: rgba(168,85,247,0.04); }
+.exp-tr.exp-tr-loading { opacity: 0.6; }
+.exp-tr.exp-tr-done { }
+.exp-tr.exp-tr-error { background: rgba(255,71,87,0.04); }
+
+.exp-td {
+  padding: 9px 10px;
+  vertical-align: top;
+  color: var(--t1);
+  line-height: 1.6;
+}
+.exp-td-ticket {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.exp-ticket-id {
+  display: block;
+  font-size: 11px;
+  color: var(--cyan);
+  text-shadow: 0 0 6px rgba(0,212,255,0.3);
+}
+.exp-ticket-subject {
+  display: block;
+  font-size: 8.5px;
+  color: var(--t3);
+  margin-top: 2px;
+  max-width: 85px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exp-td-summary {
+  font-size: 10px;
+  color: var(--t1);
+}
+.exp-td-resolution {
+  font-size: 10px;
+  color: #86efac;
+}
+.exp-cell-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--t3);
+  font-size: 9px;
+}
+.exp-cell-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(168,85,247,0.3);
+  border-top-color: #c084fc;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+.exp-cell-error {
+  color: #fca5a5;
+  font-size: 9px;
+}
+
+/* Resolution badges */
+.exp-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border: 1px solid;
+}
+.exp-badge-open    { background: rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.3); color: var(--yellow); }
+.exp-badge-pending { background: rgba(168,85,247,0.08); border-color: rgba(168,85,247,0.3); color: #c084fc; }
+.exp-badge-resolved{ background: rgba(6,255,165,0.08); border-color: rgba(6,255,165,0.3); color: var(--green); }
+.exp-badge-urgent  { background: rgba(255,71,87,0.08); border-color: rgba(255,71,87,0.3); color: var(--red); }
+
+/* ── Log Console ─────────────────────────────────────────────────────────────── */
+.exp-log {
+  margin: 10px 14px 14px;
+  border: 1px solid rgba(0,212,255,0.1);
+  border-radius: var(--r);
+  background: rgba(0,0,0,0.35);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.exp-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: rgba(0,212,255,0.04);
+  border-bottom: 1px solid rgba(0,212,255,0.08);
+}
+.exp-log-title {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: rgba(0,212,255,0.5);
+  text-transform: uppercase;
+}
+.exp-log-clear {
+  background: none;
+  border: none;
+  color: var(--t3);
+  font-size: 9px;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color var(--tr);
+}
+.exp-log-clear:hover { color: var(--red); }
+.exp-log-body {
+  padding: 8px 10px;
+  max-height: 100px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.exp-log-line {
+  font-size: 9px;
+  line-height: 1.5;
+  display: block;
+}
+.exp-log-info  { color: rgba(0,212,255,0.6); }
+.exp-log-ok    { color: rgba(6,255,165,0.75); }
+.exp-log-warn  { color: rgba(251,191,36,0.75); }
+.exp-log-error { color: rgba(255,71,87,0.8); }
