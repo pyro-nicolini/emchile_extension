@@ -1017,7 +1017,8 @@
           ".search-record-item", ".search-list-row", ".record-row", ".lyteTableRow",
           ".zd-ticket-row", ".zd-list-row", ".zd-record-row",
           "lyte-table-row", "tr.lyteTableRow", ".dv-row", ".ticket-row", "[class*='listRow']",
-          ".zgh-search-result-row", ".search-ticket-row"
+          ".zgh-search-result-row", ".search-ticket-row", ".zd-search-item", ".search-record",
+          "[data-test-id='search-result-item']", ".zd-list-item-wrapper"
         ];
         
         let listRows = [];
@@ -1126,7 +1127,7 @@
 
             // 3. Asunto (Subject)
             let subject = "";
-            const titleEl = row.querySelector(".subject, [class*='subject'], .ticket-title, [class*='title'], h2, h3, .search-title, a[class*='title']");
+            const titleEl = row.querySelector(".subject, [class*='subject'], .ticket-title, [class*='title'], h2, h3, .search-title, a[class*='title'], [data-test-id='ticket-subject']");
             if (titleEl) {
               subject = titleEl.textContent.trim();
             } else if (metadataParts.length > 0) {
@@ -1146,7 +1147,7 @@
 
             // Fallbacks finales para el emisor
             if (!sender || sender.length > 70) {
-              const senderEl = row.querySelector(".contact-name, [class*='contact'], [class*='requester'], [class*='sender'], .name");
+              const senderEl = row.querySelector(".contact-name, [class*='contact'], [class*='requester'], [class*='sender'], .name, [data-test-id='customer-name']");
               sender = senderEl ? senderEl.textContent.trim() : "Desconocido";
             }
             if (!ts) {
@@ -1761,12 +1762,16 @@
         ).trim(),
       };
       const ticketData = extractTicketData(mergedContext);
-      const result = await bgMessage({
-        type: "ANALYZE_TICKET",
-        data: ticketData,
-      });
+
+      // Wrap bgMessage with a timeout to avoid indefinite loading
+      const analysisPromise = bgMessage({ type: "ANALYZE_TICKET", data: ticketData });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Tiempo de espera agotado (70s). El servicio de IA no respondió.")), 70000)
+      );
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
       postToSidebar({ type: "ANALYSIS_RESULT", data: result, ticketData });
     } catch (err) {
+      console.error("[EMChile] triggerAnalysis error:", err);
       postToSidebar({ type: "ANALYSIS_ERROR", error: err.message });
     } finally {
       isAnalyzing = false;
@@ -1876,6 +1881,10 @@
       '[class*="ticketNumber"]',
       '[class*="ticket-no"]',
       '[class*="ticketno"]',
+      "[data-test-id='ticket-id']",
+      ".zd-ticket-id",
+      ".ticket-id-text",
+      ".zd-ticketno"
     ]);
     if (fromDOM) {
       const digits = fromDOM.replace(/\D/g, "");
@@ -1890,6 +1899,13 @@
     );
     for (const el of scanTargets) {
       const hit = el.textContent.match(/#(\d{3,})/);
+      if (hit) return hit[1];
+    }
+
+    // 5.5 Check for breadcrumbs in V2
+    const breadcrumb = document.querySelector('[data-test-id="breadcrumb"], .zd-breadcrumb, .breadcrumb');
+    if (breadcrumb) {
+      const hit = breadcrumb.textContent.match(/#(\d{3,})/);
       if (hit) return hit[1];
     }
 
@@ -1981,6 +1997,8 @@
         "[data-subject]",
         ".detail-title",
         ".page-title h1",
+        "[data-test-id='ticket-subject']",
+        ".zd-ticket-subject"
       ]) ||
       (() => {
         const m = document.title.match(/^(.+?)\s*[-|–]/);
@@ -2092,10 +2110,11 @@
     }
 
     // 1. Soportar la nueva UI de Zoho Desk V2 (elementos explícitos de tiempo)
-    const v2Els = document.querySelectorAll('[data-id="commonTime"], [data-test-id="commonTime"], [class*="usertime" i], time, .mail-time');
+    const v2Els = document.querySelectorAll('[data-id="commonTime"], [data-test-id="commonTime"], [class*="usertime" i], time, .mail-time, .zd-comment-date');
     for (let el of v2Els) {
       parseAndCompare(el.getAttribute("data-title"));
       parseAndCompare(el.getAttribute("aria-label"));
+      parseAndCompare(el.getAttribute("datetime"));
       parseAndCompare(el.innerText);
     }
     if (maxDate) return maxDate;
@@ -2186,6 +2205,16 @@
       '[class*="replyContent"]',
       '[class*="message-body"]',
       '[class*="messageBody"]',
+      // Zoho Desk V2 specifically
+      ".zd-comment-unit",
+      ".zgh-userMsg",
+      ".comment-item",
+      ".mail-message-item",
+      ".conversation-item",
+      ".zd-comment",
+      ".Thread-item",
+      ".ticket-thread",
+      "article[class*='message']"
     ];
 
     let bestResult = [];
@@ -2263,7 +2292,8 @@
     return document.querySelector(
       '#ticketDetail, .ticket-detail, [class*="ticket-detail"], ' +
         '[class*="ticket-view"], [class*="ticketView"], ' +
-        '[class*="conversations"], [class*="conversation"], [role="main"], main',
+        '[class*="conversations"], [class*="conversation"], [role="main"], main, ' +
+        '[data-test-id*="ticket-view"], [data-test-id*="conversation"]',
     );
   }
 
@@ -2334,7 +2364,7 @@
       const senderEl = node.querySelector(
         ".sender-name, .from-name, .author-name, " +
           '[class*="sender"], [class*="author"], [class*="from-name"], ' +
-          '[class*="fromName"], [class*="contact-name"]',
+          '[class*="fromName"], [class*="contact-name"], .zd-comment-author, .zgh-userName, .zd-author-name',
       );
       const sender = senderEl?.textContent.trim() || `Mensaje ${i + 1}`;
 
@@ -2342,7 +2372,7 @@
       const timeEl =
         node.querySelector("time[datetime]") ||
         node.querySelector(
-          '[class*="time"], [class*="date"], [class*="timestamp"]',
+          '[class*="time"], [class*="date"], [class*="timestamp"], .zd-comment-date, .mail-time'
         );
       const ts =
         timeEl?.getAttribute("datetime") || timeEl?.textContent.trim() || "";
@@ -2351,7 +2381,7 @@
       // more OC references than the narrowed body selection.
       const bodyEl = node.querySelector(
         '[class*="body"], [class*="content"], [class*="text"], ' +
-          '[class*="mail-body"], [class*="mailBody"], blockquote',
+          '[class*="mail-body"], [class*="mailBody"], blockquote, .zd-comment-content, .zgh-userMsgText, .comment-text',
       );
       const bodyText = bodyEl
         ? bodyEl.textContent.replace(/\s+/g, " ").trim()
@@ -2480,8 +2510,8 @@
         if (isTop) closeSidebar();
         break;
       case "INSERT_IN_ZOHO":
-        // El insert puede ser en un iframe (el editor de Zoho está en un iframe)
-        insertTextInZoho(data?.text || "");
+        // El insert se delega a background.js, solo el frame principal debe despacharlo
+        if (isTop) insertTextInZoho(data?.text || "");
         break;
       case "AUTO_FILL_FIELDS":
         if (isTop) autoFillTicketFields(data || {});
@@ -2694,10 +2724,10 @@
       const btns = Array.from(document.querySelectorAll('button, div, span, a, svg')).filter(el => {
         if (el.offsetWidth === 0 && el.tagName !== 'svg') return false;
         const txt = (el.title || el.getAttribute('aria-label') || el.getAttribute('data-tooltip') || "").toLowerCase();
-        return txt.includes('buscar (/)') || txt.includes('search (/)');
+        return txt.includes('buscar (/)') || txt.includes('search (/)') || txt.includes('global search') || txt.includes('búsqueda global');
       });
       
-      const searchIcon = btns[0] || document.querySelector('.GlobalSearch, #HeadSearch, [class*="search-icon"], [id*="search-icon"]');
+      const searchIcon = btns[0] || document.querySelector('.GlobalSearch, #HeadSearch, [class*="search-icon"], [id*="search-icon"], [data-test-id="search-icon"]');
 
       if (searchIcon && typeof searchIcon.click === 'function') {
         searchIcon.click();

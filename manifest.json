@@ -11,7 +11,8 @@
     "https://api.openai.com/*",
     "https://models.inference.ai.azure.com/*",
     "https://api.anthropic.com/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.cerebras.ai/*"
   ],
   "background": {
     "service_worker": "background.js"

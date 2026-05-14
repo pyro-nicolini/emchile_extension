@@ -32,6 +32,12 @@
       { value: "gemini-1.5-pro",              label: "Gemini 1.5 Pro · Máxima capacidad" },
       { value: "gemini-2.5-pro-preview-05-06", label: "Gemini 2.5 Pro Preview · Más inteligente" },
     ],
+    cerebras: [
+      { value: "llama3.1-8b",                          label: "Llama 3.1 8B · Ultra rápido" },
+      { value: "llama3.3-70b",                         label: "Llama 3.3 70B · Balanceado" },
+      { value: "gpt-oss-120b",                         label: "GPT-OSS 120B · Razonamiento" },
+      { value: "qwen-3-235b-a22b-instruct-2507",        label: "Qwen 3 235B · Avanzado" },
+    ],
   };
 
   var PROVIDER_UI = {
@@ -39,6 +45,7 @@
     github_copilot: { label: "GitHub Token (models:read)",        placeholder: "ghp_…" },
     claude:         { label: "Claude API Key",                    placeholder: "sk-ant-…" },
     gemini:         { label: "Gemini API Key (Google AI Studio)", placeholder: "AIza…" },
+    cerebras:       { label: "Cerebras API Key",                  placeholder: "csk-…" },
   };
 
   var PROVIDER_STORAGE_KEY = {
@@ -46,6 +53,7 @@
     github_copilot: "apiKeyGitHubCopilot",
     claude:         "apiKeyClaude",
     gemini:         "apiKeyGemini",
+    cerebras:       "apiKeyCerebras",
   };
   // ─── State ─────────────────────────────────────────────────────────────────
   let currentResult = null;
@@ -540,8 +548,16 @@
   function notifyContent(msg) {
     console.log("%c[EMChile] Sidebar notifying:", "color:lime;font-weight:bold;", msg);
     // Send to background script which will forward to content script
-    // This is more reliable than window.postMessage in some browsers (like Opera)
-    chrome.runtime.sendMessage({ type: "NOTIFY_CONTENT", msg });
+    chrome.runtime.sendMessage({ type: "NOTIFY_CONTENT", msg }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn("[EMChile] notifyContent error:", chrome.runtime.lastError.message);
+        // If we're in loading state and communication failed, show error
+        if (activeView === "loading") {
+          el.errMsg.textContent = "Error de conexión con la extensión. Recarga la página e intenta de nuevo.";
+          showView("error");
+        }
+      }
+    });
   }
 
   // ─── VIEW MANAGEMENT ───────────────────────────────────────────────────────
@@ -562,6 +578,19 @@
       if (node) node.classList.toggle("hidden", v !== name);
     });
     activeView = name;
+
+    // Safety timeout: if loading takes > 75s, show a timeout error
+    if (name === "loading") {
+      clearTimeout(showView._loadingTimer);
+      showView._loadingTimer = setTimeout(() => {
+        if (activeView === "loading") {
+          el.errMsg.textContent = "Tiempo de espera agotado. El análisis tardó demasiado. Intenta de nuevo.";
+          showView("error");
+        }
+      }, 75000);
+    } else {
+      clearTimeout(showView._loadingTimer);
+    }
   }
 
   // ─── RENDER RESULT ─────────────────────────────────────────────────────────
@@ -1172,6 +1201,10 @@
     }
     if (provider === "gemini" && !key.startsWith("AIza")) {
       showToast('⚠ La API Key de Gemini debe comenzar con "AIza"');
+      return;
+    }
+    if (provider === "cerebras" && !key.startsWith("csk-")) {
+      showToast('⚠ La API Key de Cerebras debe comenzar con "csk-"');
       return;
     }
 

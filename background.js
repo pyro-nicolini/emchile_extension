@@ -22,7 +22,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case "GET_SETTINGS":
       chrome.storage.local.get(
         ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
-         "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini"],
+         "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini", "apiKeyCerebras"],
         sendResponse,
       );
       return true;
@@ -39,7 +39,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         chrome.storage.local.get(
           ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
-           "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini"],
+           "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini", "apiKeyCerebras"],
           (saved) => {
             if (chrome.runtime.lastError) {
               sendResponse({
@@ -155,15 +155,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               };
 
               const collectDocs = () => {
-                const docs = [document];
-                try {
-                  document.querySelectorAll("iframe").forEach((frame) => {
-                    try {
-                      if (frame.contentDocument) docs.push(frame.contentDocument);
-                    } catch (_) {}
-                  });
-                } catch (_) {}
-                return docs;
+                return [document];
               };
 
               const getCandidates = (doc) =>
@@ -866,14 +858,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
       })();
       return true;
+    } // Cierra case "EXEC_INSERT"
+
     case "NOTIFY_CONTENT": {
       console.log("%c[EMChile] Background relaying:", "color:orange;font-weight:bold;", request.msg);
-      chrome.tabs.query({ active: true }, (tabs) => {
-        tabs.forEach(tab => {
-          chrome.tabs.sendMessage(tab.id, request.msg).catch(() => {});
-        });
+      // Strategy 1: Use the tab that owns the sidebar iframe (most reliable)
+      const senderTabId = sender?.tab?.id;
+      if (senderTabId) {
+        chrome.tabs.sendMessage(senderTabId, request.msg).catch(() => {});
+        sendResponse({ ok: true });
+        return false;
+      }
+      // Strategy 2: Active tab in the current window
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs.length > 0) {
+          chrome.tabs.sendMessage(tabs[0].id, request.msg).catch(() => {
+            // Strategy 3: Any Zoho Desk tab
+            chrome.tabs.query({ url: "*://desk.zoho.com/*" }, (zdTabs) => {
+              (zdTabs || []).forEach(tab => {
+                chrome.tabs.sendMessage(tab.id, request.msg).catch(() => {});
+              });
+            });
+          });
+        }
+        sendResponse({ ok: true });
       });
-      return false;
+      return true;
     }
   }
 });
@@ -896,6 +906,9 @@ async function callAI(settings, messages, { model, temperature = 0.3, requireJso
   }
   if (provider === "gemini") {
     return callGeminiAPI(apiKey, messages, { model, temperature, requireJson });
+  }
+  if (provider === "cerebras") {
+    return callCerebrasAPI(apiKey, messages, { model, temperature, requireJson });
   }
   // default: openai
   return callOpenAICompatible(
@@ -997,6 +1010,19 @@ async function callGeminiAPI(apiKey, messages, { model, temperature, requireJson
   const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!content) throw new Error("Respuesta vacía de Gemini. Intenta nuevamente.");
   return content;
+}
+
+/**
+ * Call the Cerebras Inference API.
+ * Cerebras is fully OpenAI-compatible — same endpoint format, same response shape.
+ * Endpoint: https://api.cerebras.ai/v1/chat/completions
+ */
+async function callCerebrasAPI(apiKey, messages, { model, temperature, requireJson = false }) {
+  const cerebrasModel = model || "llama3.3-70b";
+  return callOpenAICompatible(
+    "https://api.cerebras.ai/v1/chat/completions",
+    apiKey, messages, { model: cerebrasModel, temperature, requireJson }
+  );
 }
 
 async function callGitHubCopilotAPI(apiKey, messages, { model, temperature }) {
@@ -1127,8 +1153,18 @@ async function analyzeTicket(ticketData) {
       'API Key de Claude inválida. Debe comenzar con "sk-ant-".',
     );
   }
+  if (provider === "cerebras" && !apiKey.startsWith("csk-")) {
+    throw new Error(
+      'API Key de Cerebras inválida. Debe comenzar con "csk-".',
+    );
+  }
 
-  const model = settings.model || (provider === "claude" ? "claude-3-5-sonnet-20241022" : provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o-mini");
+  const model = settings.model || (
+    provider === "claude"    ? "claude-3-5-sonnet-20241022" :
+    provider === "gemini"    ? "gemini-2.0-flash" :
+    provider === "cerebras"  ? "llama3.3-70b" :
+    "gpt-4o-mini"
+  );
 
   const content = await callAI(settings, [
     { role: "system", content: buildSystemPrompt(settings) },
@@ -2054,7 +2090,7 @@ function getSettings() {
   return new Promise((resolve) =>
     chrome.storage.local.get(
       ["apiKey", "model", "customPrompt", "useCustomPrompt", "aiProvider",
-       "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini"],
+       "apiKeyOpenAI", "apiKeyGitHubCopilot", "apiKeyClaude", "apiKeyGemini", "apiKeyCerebras"],
       resolve,
     ),
   );
@@ -2066,6 +2102,7 @@ function resolveApiKey(settings) {
   if (provider === "github_copilot") return settings.apiKeyGitHubCopilot || settings.apiKey || "";
   if (provider === "claude")         return settings.apiKeyClaude        || settings.apiKey || "";
   if (provider === "gemini")         return settings.apiKeyGemini         || settings.apiKey || "";
+  if (provider === "cerebras")       return settings.apiKeyCerebras      || settings.apiKey || "";
   return settings.apiKeyOpenAI || settings.apiKey || "";
 }
 
